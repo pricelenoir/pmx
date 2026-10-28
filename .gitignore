@@ -1,0 +1,27 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
+
+# Rust
+tui/target/
+
+# Local data (recordings, models, logs, sockets) and secrets
+data/
+.env
+
+# Local development notes and agent instructions (not published)
+planning/
+CLAUDE.local.md
+
+# Local agent tooling
+.agents/
+.claude/
+skills-lock.json
+
+# OS
+.DS_Store

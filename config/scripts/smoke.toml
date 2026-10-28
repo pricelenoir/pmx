@@ -1,0 +1,27 @@
+# `scripted` smoke test for the order path (paper): rest a 1-contract bid 5¢ under mid, pull it after a
+# minute, then buy 1 at the ask and sell it back two minutes later. Times are from the slot's start.
+
+[[steps]]
+at = "+0s"
+action = "quote"
+side = "bid"
+price = "mid-0.05"
+qty = "1"
+
+[[steps]]
+at = "+60s"
+action = "cancel_all"
+
+[[steps]]
+at = "+60s"
+action = "take"
+side = "bid"
+price = "ask"
+qty = "1"
+
+[[steps]]
+at = "+180s"
+action = "take"
+side = "ask"
+price = "bid"
+qty = "1"

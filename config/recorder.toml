@@ -1,0 +1,23 @@
+# The recorder (`pmx record`): the venue universe, any other sources, and how long raw logs are kept.
+
+[recorder]
+keep_days = 30  # raw days older than this are deleted, but only once `pmx compact` has written their parquet
+
+# Kalshi: every open market in each series, plus any explicit tickers. Re-discovered every refresh_s seconds.
+
+[kalshi]
+series = [
+    "KXNFLGAME",  # NFL game winners
+    "KXHIGHNY",   # NYC daily high temperature
+    "KXCPI",      # CPI print
+    "KXFED",      # Fed funds target
+]
+tickers = []
+refresh_s = 300
+
+# Any registered source plugin (`@source`) can be recorded: it runs as in `pmx run`, but only its raw
+# records are kept. Domain data lives here, not in the recorder.
+[[source]]
+name = "espn"
+kind = "espn_nfl"
+params = { idle_s = 60, live_s = 5, summary_s = 15 }

@@ -1,0 +1,36 @@
+{"t":"hello","venue":"kalshi","env":"prod","source":"engine","version":3,"run":""}
+{"t":"status","connected":true,"detail":"websocket connected","ts_ms":1792000000000,"source":"","dropped":0}
+{"t":"synced"}
+{"t":"status","connected":true,"detail":"engine connected","ts_ms":1792000000000,"source":"engine","dropped":1234}
+{"t":"status","connected":false,"detail":"poll timeout","ts_ms":1792000000000,"source":"weather","dropped":0}
+{"t":"account","balance":25000000000,"positions":[],"ts_ms":1792000000000}
+{"t":"models","names":["fair","mid"]}
+{"t":"contract","ticker":"DEMO-NFL-26OCT18HOUJAC-HOU","event_ticker":"DEMO-NFL-26OCT18HOUJAC","series":"DEMO-NFL","title":"Houston at Jacksonville: Houston","subtitle":"Houston","status":"open","close_ts_ms":1792086400000,"event_ts_ms":1792003600000,"result":null}
+{"t":"contract","ticker":"DEMO-NFL-26OCT18HOUJAC-JAC","event_ticker":"DEMO-NFL-26OCT18HOUJAC","series":"DEMO-NFL","title":"Houston at Jacksonville: Jacksonville","subtitle":"Jacksonville","status":"open","close_ts_ms":1792086400000,"event_ts_ms":1792003600000,"result":null}
+{"t":"contract","ticker":"DEMO-HIGHNY-26OCT18-B68","event_ticker":"DEMO-HIGHNY-26OCT18","series":"DEMO-HIGHNY","title":"NYC high temp on Oct 18: 68-69°F","subtitle":"68° to 69°","status":"open","close_ts_ms":1792086400000,"event_ts_ms":1792003600000,"result":null}
+{"t":"book","ticker":"DEMO-NFL-26OCT18HOUJAC-HOU","bids":[[5500,10000],[5400,2500],[5300,2500],[5200,2500],[5100,2500],[5000,2500],[4900,2500],[4800,2500],[4700,2500],[4600,2500]],"asks":[[5700,400],[5800,12000]],"ts_ms":1792000000000}
+{"t":"top","ticker":"DEMO-NFL-26OCT18HOUJAC-HOU","bid":[5500,10000],"ask":[5700,400],"last":null,"fairs":{},"position":{},"ts_ms":1792000000006}
+{"t":"book","ticker":"DEMO-NFL-26OCT18HOUJAC-JAC","bids":[[4200,3000]],"asks":[[4400,5000]],"ts_ms":1792000000000}
+{"t":"top","ticker":"DEMO-NFL-26OCT18HOUJAC-JAC","bid":[4200,3000],"ask":[4400,5000],"last":null,"fairs":{},"position":{},"ts_ms":1792000000007}
+{"t":"book","ticker":"DEMO-HIGHNY-26OCT18-B68","bids":[],"asks":[[3300,1200]],"ts_ms":1792000000000}
+{"t":"top","ticker":"DEMO-HIGHNY-26OCT18-B68","bid":null,"ask":[3300,1200],"last":null,"fairs":{},"position":{},"ts_ms":1792000000008}
+{"t":"trade","ticker":"DEMO-NFL-26OCT18HOUJAC-HOU","price":5600,"qty":300,"taker_side":"bid","ts_ms":1792000000000}
+{"t":"fill","ticker":"DEMO-NFL-26OCT18HOUJAC-HOU","side":"bid","price":5500,"qty":500,"fee":4331,"is_taker":false,"ts_ms":1792000000000,"slot":"mm/DEMO-NFL-26OCT18HOUJAC-HOU","mode":"paper"}
+{"t":"entity","key":"demo:nfl:HOU-JAC","kind":"demo_sports","tickers":["DEMO-NFL-26OCT18HOUJAC-HOU","DEMO-NFL-26OCT18HOUJAC-JAC"],"summary":"Q3 4:12 HOU 17-14 JAC","fields":[["score","HOU 17 - 14 JAC"],["possession","JAC, 2nd & 6"]],"ts_ms":1792000000000}
+{"t":"entity","key":"wx:KNYC:2026-10-18","kind":"demo_weather","tickers":["DEMO-HIGHNY-26OCT18-B68"],"summary":"KNYC 64°F · high so far 66°F","fields":[["now","64°F"],["high so far","66°F"]],"ts_ms":1792000000000}
+{"t":"advice","advisor":"news","target":"DEMO-NFL-26OCT18HOUJAC-HOU","p":0.61,"direction":"buy","confidence":0.8,"expires_ms":1792000060000,"rationale":"injury report: JAC QB out","ts_ms":1792000000000}
+{"t":"slot","slot":"mm/DEMO-NFL-26OCT18HOUJAC-HOU","strategy":"mm","ticker":"DEMO-NFL-26OCT18HOUJAC-HOU","mode":"paper","state":"active","position":500,"realized":0,"unrealized":25000,"fees":4331,"working":1,"last_action":"quote 55¢ / 57¢","ts_ms":1792000000000}
+{"t":"slot","slot":"smoke/DEMO-HIGHNY-26OCT18-B68","strategy":"smoke","ticker":"DEMO-HIGHNY-26OCT18-B68","mode":"live","state":"halted","position":0,"realized":-120000,"unrealized":0,"fees":9000,"working":0,"last_action":"halted: max_loss","ts_ms":1792000000000}
+{"t":"order","slot":"mm/DEMO-NFL-26OCT18HOUJAC-HOU","mode":"paper","client_order_id":"c1","order_id":"p-1","ticker":"DEMO-NFL-26OCT18HOUJAC-HOU","side":"bid","price":5500,"qty":500,"filled":0,"status":"open","ts_ms":1792000000000,"reason":""}
+{"t":"order","slot":"mm/DEMO-NFL-26OCT18HOUJAC-HOU","mode":"paper","client_order_id":"c0","order_id":"p-0","ticker":"DEMO-NFL-26OCT18HOUJAC-HOU","side":"ask","price":5800,"qty":500,"filled":500,"status":"filled","ts_ms":1792000000000,"reason":""}
+{"t":"risk","slot":"smoke/DEMO-HIGHNY-26OCT18-B68","ticker":"DEMO-HIGHNY-26OCT18-B68","side":"bid","price":3200,"qty":1000,"rule":"max_loss","detail":"day loss $1.20 >= $1.00","ts_ms":1792000000000}
+{"t":"log","level":"warn","source":"smoke/DEMO-HIGHNY-26OCT18-B68","text":"slot halted: max_loss","ts_ms":1792000000000}
+{"t":"halt","scope":"smoke/DEMO-HIGHNY-26OCT18-B68","reason":"max_loss","active":true,"ts_ms":1792000000000}
+{"t":"portfolio","ts_ms":1792000000000,"scopes":[{"scope":"portfolio","mode":"paper","realized":1250000,"unrealized":25000,"fees":74331,"equity":1200669,"today":310000,"hwm":1500000,"drawdown":299331,"capital_at_risk":2800000,"worst_case":-2750000,"ev_model":410000,"stdev_model":1900000,"gross_exposure":2800000,"working_exposure":2750000,"open_positions":1,"stale":false}],"exposures":[{"entity":"demo:nfl:HOU-JAC","mode":"paper","tickers":["DEMO-NFL-26OCT18HOUJAC-HOU"],"strategies":["mm"],"capital_at_risk":2800000,"scenarios":{"HOU":2175669,"JAC":-2750000,"tie":-2750000},"worst_case":-2750000,"ev_model":410000,"ev_market":300000}],"limits":[{"scope":"global","limit":"max_capital_at_risk","used":2800000,"cap":500000000,"breached":false}]}
+{"t":"equity","scope":"portfolio","mode":"paper","points":[[1792000000000,1200669,299331]],"replace":false}
+{"t":"equity","scope":"portfolio","mode":"paper","points":[[1791999998000,1000000,0],[1791999999000,1500000,0]],"replace":true}
+{"t":"perf","strategy":"mm","mode":"paper","range":"7d","ts_ms":1792000000000,"stats":{"net":1200669,"gross":0,"fees":0,"realized":0,"open":0,"orders":0,"fills":12,"contracts":600,"maker_share":null,"fill_rate":null,"episodes":0,"markets":0,"entities":0,"win_rate":null,"avg_win":null,"avg_loss":null,"profit_factor":null,"expectancy_c":null,"expectancy_ci":null,"pnl_ci":null,"p_nonpositive":null,"best_episode":null,"worst_episode":null,"edge_entry_c":null,"edge_realized_c":null,"capture":null,"markouts_c":{},"max_drawdown":0,"time_under_water_ms":0,"max_capital_at_risk":0,"return_on_risk":null,"daily":[],"sharpe_day":null,"days":0,"pct_days_positive":null,"brier_model":null,"brier_market":null},"breakdowns":{"market":[{"key":"DEMO-NFL-26OCT18HOUJAC-HOU","fills":12,"contracts":600,"pnl":1200669,"cpc":null,"edge_c":null}]},"verdict":{"verdict":"inconclusive","reason":"12 fills over 1 day: too little to say","flags":[],"needed":""}}
+{"t":"book","ticker":"DEMO-NFL-26OCT18HOUJAC-HOU","bids":[[5500,10000],[5400,2500],[5300,2500],[5200,2500],[5100,2500],[5000,2500],[4900,2500],[4800,2500],[4700,2500],[4600,2500]],"asks":[[5700,300],[5800,12000]],"ts_ms":1792000000000}
+{"t":"top","ticker":"DEMO-NFL-26OCT18HOUJAC-HOU","bid":[5500,10000],"ask":[5700,300],"last":[5600,300,"bid"],"fairs":{"fair":0.582,"mid":0.56},"position":{"paper":500},"ts_ms":1792000001000}
+{"t":"stale","ticker":"DEMO-HIGHNY-26OCT18-B68"}
+{"t":"reset","reason":"seq gap","ts_ms":1792000000000}

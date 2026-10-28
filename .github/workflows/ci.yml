@@ -1,0 +1,48 @@
+# Offline checks on every push: the Python suite + ruff, and the TUI's fmt / clippy / tests.
+# Performance budgets (`pytest -m slow`, `cargo test --release scale`) stay local: shared runners are too noisy.
+name: CI
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install (from uv.lock)
+        run: uv sync --locked --python 3.13
+      - name: Lint
+        run: uv run --locked ruff check src tests
+      - name: Tests
+        run: uv run --locked pytest -q
+
+  tui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: tui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tui
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo test --locked

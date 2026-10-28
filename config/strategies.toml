@@ -1,0 +1,85 @@
+# `pmx run`: everything the engine runs (docs/ARCHITECTURE.md, *Config*). Check it with `pmx config check`.
+# Money and quantities are strings ("25.00", "5"); secrets never go here (.env and ~/.kalshi/ only).
+# `pmx serve` / `pmx tui` use the same file without the [[strategy]]s.
+
+[engine]
+venue = "kalshi"
+env = "prod"                        # market data; --env overrides. Orders are paper unless a strategy is live
+record = true                       # raw-record every source while running (don't also run `pmx record`)
+paper_cash = "1000.00"              # the paper account's starting balance
+checkpoint_s = 60                   # slot checkpoints (on_save) this often and at shutdown
+
+[watch]                             # markets to stream for the TUI even if nothing trades them
+series = [
+    "KXNFLGAME",  # NFL game winners
+    "KXHIGHNY",   # NYC daily high temperature
+    "KXCPI",      # CPI print
+    "KXFED",      # Fed funds target
+]
+
+[risk]                              # global (portfolio) limits
+max_loss = "250.00"
+max_open_orders = 60
+max_capital_at_risk = "1000.00"
+max_worst_case = "400.00"
+max_entity_risk = "150.00"
+max_drawdown = "300.00"
+
+[[source]]
+name = "espn"
+kind = "espn_nfl"
+params = { idle_s = 60, live_s = 5, summary_s = 15 }
+
+# [[source]]                        # an external feed a strategy can read (example)
+# name = "coinbase_btc"             # what strategies list in `inputs`
+# kind = "coinbase_trades"
+# queue = { max = 10000, policy = "conflate" }
+# params = { product = "BTC-USD", emit_ms = 100 }
+
+# [[advisor]]                       # an AI agent — illustration; never places orders
+# name = "news"
+# kind = "llm_news"
+# params = { timeout_s = 20, max_cost_per_day = "5.00" }
+
+[[model]]
+name = "espn"                       # instance name; strategies and the TUI refer to this
+kind = "espn_wp"                    # pass-through of ESPN's win probability
+
+[[model]]
+name = "mid"                        # a second model running alongside, for comparison
+kind = "market_mid"
+
+[manual]                            # limits for orders placed by hand (`pmx order`)
+risk = { max_position = "20", max_order_qty = "10", max_loss = "10.00" }
+
+[[strategy]]                        # reference strategy for system tests: rests and takes 1 contract
+id = "smoke"
+kind = "scripted"
+mode = "paper"
+markets = { series = ["KXNFLGAME"], linker = "nfl_game" }   # one slot per matching market
+params = { script = "config/scripts/smoke.toml", jitter_s = 30 }   # slots spread over 30 s (10 writes/s)
+risk = { max_position = "5", max_loss = "5.00" }
+
+[[strategy]]                        # never trades: logs when ESPN's win probability and the mid disagree
+id = "nfl-watch"
+kind = "watch"
+mode = "paper"
+model = "espn"
+markets = { series = ["KXNFLGAME"], linker = "nfl_game" }
+params = { threshold = 0.05 }
+
+# [[strategy]]                      # a custom strategy (docs/GUIDE.md) — example
+# id = "nfl-edge"
+# kind = "edge_taker"
+# mode = "paper"
+# model = "espn"
+# markets = { series = ["KXNFLGAME"], linker = "nfl_game" }
+# params = { min_edge = 0.04, size = "5", max_spread = "0.03" }
+# risk = { max_position = "50", max_order_qty = "10", max_loss = "25.00", stale_book_ms = 5000,
+#          stale_forecast_ms = 60000 }
+# inputs = ["coinbase_btc"]         # on_input / m.input("coinbase_btc")
+# advisors = ["news"]               # on_advice / m.advice("news")
+# cadence_ms = 250                  # book/trade/input hooks at most 4×/s
+# warmup_s = 300                    # no orders for the first 5 minutes
+# slot_by = "market"                # or "event" / "entity" / "all" / { linker = "…" }
+# cpu_budget_ms = 50
