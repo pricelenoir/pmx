@@ -1,5 +1,6 @@
 # Offline checks on every push: the Python suite + ruff, and the TUI's fmt / clippy / tests.
 # Performance budgets (`pytest -m slow`, `cargo test --release scale`) stay local: shared runners are too noisy.
+# Runners are pinned (not ubuntu-latest) so an image change is a deliberate edit here.
 name: CI
 
 on:
@@ -15,11 +16,11 @@ concurrency:
 
 jobs:
   python:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
       - name: Install (from uv.lock)
@@ -30,13 +31,13 @@ jobs:
         run: uv run --locked pytest -q
 
   tui:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     defaults:
       run:
         working-directory: tui
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
