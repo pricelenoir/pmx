@@ -1,14 +1,16 @@
 # The recorder (`pmx record`): the venue universe, any other sources, and how long raw logs are kept.
 
 [recorder]
-keep_days = 30  # raw days older than this are deleted, but only once `pmx compact` has written their parquet
+keep_days = 3650  # raw days older than this are deleted once compacted; compaction keeps only top of book, so raw
+                 # is the only record of order-book depth (book-fidelity backtests, market-making research)
 
 # Kalshi: every open market in each series, plus any explicit tickers. Re-discovered every refresh_s seconds.
 
 [kalshi]
 series = [
     "KXNFLGAME",  # NFL game winners
-    "KXHIGHNY",   # NYC daily high temperature
+    "KXHIGHNY", "KXHIGHCHI", "KXHIGHAUS", "KXHIGHDEN", "KXHIGHPHIL",  # daily high temperature by city
+    "KXBTCD", "KXETHD", "KXBTC15M",  # crypto: BTC/ETH above-below by the hour, BTC up-down every 15 minutes
     "KXCPI",      # CPI print
     "KXFED",      # Fed funds target
 ]

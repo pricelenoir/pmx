@@ -31,6 +31,9 @@ pmx doctor                              # venv = uv.lock, TUI, keys 0600, clock,
 pmx risk [--mode paper]                 # the running engine's portfolio: equity, capital at risk, scenarios, limit usage
 pmx backtest --from DAY [--to DAY] [--sources kalshi,espn]   # recorded days through the config → data/backtests/
                                         #   (--from/--to also take instants, DAYTHH:MM:SSZ: replay a live session)
+pmx data kalshi --series KXHIGHNY [--trades] [--period 1h] [--since DAY]   # any series' history → data/kalshi/series/
+pmx research init|new|approve|run|advance|amend|close|status   # pre-registered experiments in research/ (docs/RESEARCH.md;
+                                        #   approve and promotion are the owner's: they need a terminal)
 pmx serve --env prod                    # pmx run without strategies or recording: market data + models → feed
 pmx tui --env prod                      # attach the Rust dashboard; q detaches, pmx keeps running (starts serve, never run)
 pmx tui --env prod --series KXNFLGAME --models market_mid,espn_wp   # override [watch], add models
@@ -42,7 +45,7 @@ pmx bench soak --hours 4 --viewer-pid PID   # memory/files/queues over hours →
 pmx tui --build ...                     # force a rebuild (automatic when tui/ sources are newer)
 ```
 
-Tests: `uv run pytest` (~14 s); performance budgets: `uv run pytest -m slow` (~35 s).
+Tests: `uv run pytest` (~25 s); performance budgets: `uv run pytest -m slow` (~35 s).
 Lint: `uv run ruff check src tests`. Strategy tests use `pmx.testing.Scenario` (GUIDE).
 Rust (`tui/`): `cargo test`, `cargo clippy --all-targets`, `cargo fmt` — keep all clean.
 TUI budgets (frame, sort, apply at 5k/10k markets; fail past 2×): `cargo test --release scale -- --ignored --nocapture`.
@@ -93,5 +96,8 @@ config/recorder.toml is `pmx record`'s.
 tui/ — Rust/ratatui: proto, feed (server state), book, app (UI state + keys), ui (frame),
 charts, views/ (markets, portfolio, strategies, slots, log), net (socket client).
 models/ (base, runtime: loop/process/backtest latency, market_mid, espn_wp; nfl_wp research) ·
-sports/nfl/ (domain: teams, catalog, state, features, data, espn, linker, outcomes) · harness/ (metrics, holdout eval).
+sports/nfl/ (domain: teams, catalog, state, features, data, espn, linker, outcomes) · harness/ (metrics, holdout eval) ·
+research/ (kalshi_data, windows, catalog, panel + asof, costs, evaluate, spec, workspace, runner, report, templates/).
+`research/` at the repo root is the private, git-ignored workspace (hypotheses, specs, results): never copy it into
+the repo; its own CLAUDE.md has the rules.
 Full module layout: `docs/ARCHITECTURE.md`.

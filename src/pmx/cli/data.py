@@ -1,4 +1,5 @@
-"""Data sync: `pmx data nfl` (nflverse play-by-play), `pmx data kalshi-history`."""
+"""Data sync: `pmx data kalshi` (any series, for research), `pmx data kalshi-history` (NFL games),
+`pmx data nfl` (nflverse play-by-play)."""
 
 from __future__ import annotations
 
@@ -18,12 +19,16 @@ async def cmd_data(args: argparse.Namespace) -> None:
                 download(config.data_root(), [current], force=True):
             print(f"  {path}")
         return
+    if args.what == "kalshi":
+        await _kalshi(args)
+        return
     import polars as pl
 
     from pmx.cli.common import die, venue
     from pmx.connectors.kalshi import history
     from pmx.harness import kalshi_history as kh
 
+    args.series = args.series[0] if args.series else "KXNFLGAME"
     root = config.data_root()
     seasons = [int(s) for s in args.seasons.split(",")]
     v = venue(argparse.Namespace(env="prod"))  # history is prod's: demo has none worth keeping
@@ -67,10 +72,59 @@ async def cmd_data(args: argparse.Namespace) -> None:
                 "end_utc", "bid_close", "ask_close", "price_close", "volume", "oi"))
 
 
+async def _kalshi(args: argparse.Namespace) -> None:
+    import httpx
+
+    from pmx.cli.common import die, venue
+    from pmx.connectors.kalshi.rest import KalshiError
+    from pmx.research import kalshi_data as kd
+    from pmx.research.windows import day_ms
+
+    if not args.series and not args.category:
+        die("which series? --series KXHIGHNY … and/or --category \"Climate and Weather\"")
+    since = None
+    if args.since:
+        from datetime import date
+
+        since = day_ms(date.fromisoformat(args.since))
+    v = venue(argparse.Namespace(env="prod"))  # history is prod's
+    try:
+        series = list(args.series or [])
+        for cat in args.category or []:
+            found = await kd.series_in_category(v.rest, cat)
+            print(f"{cat}: {len(found)} series")
+            series += found
+        failed = 0
+        for s in dict.fromkeys(series):
+            try:
+                r = await kd.sync_series(config.data_root(), v.rest, s, period=args.period, trades=args.trades,
+                                         since_ms=since, force=args.force, progress=print)
+            except (KalshiError, httpx.HTTPError) as e:
+                print(f"{s}: failed: {e}")
+                failed += 1
+                continue
+            failed += bool(r.failed)
+            print(f"{s}: {r.markets:,} settled markets, {r.events:,} events → {r.fetched} files fetched, "
+                  f"{r.cached} already cached" + (f", {len(r.failed)} failed" if r.failed else ""))
+            if r.capped:
+                print(f"  warning: the archive listed {kd.LISTING_CAP:,} markets for {s}, its listing limit; "
+                      f"older markets are missing")
+            for f in r.failed[:10]:
+                print(f"  failed: {f}")
+    finally:
+        await v.aclose()
+    if failed:
+        die(f"{failed} series incomplete; run the same command again to fetch what's missing")
+
+
 def register(sub: argparse._SubParsersAction, common: argparse.ArgumentParser) -> dict[str, Callable]:
-    d = sub.add_parser("data", parents=[common], help="download history: kalshi-history, nfl")
-    d.add_argument("what", choices=["kalshi-history", "nfl"])
-    d.add_argument("--series", default="KXNFLGAME")
+    d = sub.add_parser("data", parents=[common], help="download history: kalshi (any series), kalshi-history, nfl")
+    d.add_argument("what", choices=["kalshi", "kalshi-history", "nfl"])
+    d.add_argument("--series", nargs="+", help="kalshi: series tickers · kalshi-history: one (default KXNFLGAME)")
+    d.add_argument("--category", nargs="+", help='kalshi: every series in a category, e.g. "Climate and Weather"')
+    d.add_argument("--period", default="1h", choices=["1m", "1h", "1d"], help="kalshi: candle period")
+    d.add_argument("--trades", action="store_true", help="kalshi: also every public trade (large for busy series)")
+    d.add_argument("--since", help="kalshi: only fetch candles/trades for markets closing on or after YYYY-MM-DD")
     d.add_argument("--seasons", default="2025,2026", help="nflverse seasons to link against")
     d.add_argument("--force", action="store_true", help="fetch again even when cached (candles, past seasons)")
     d.add_argument("--spot", help="print this ticker's candles around kickoff")

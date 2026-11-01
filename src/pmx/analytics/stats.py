@@ -228,6 +228,14 @@ def cpc(pnl: float, qty: float) -> float | None:
     return None if not qty else pnl / qty * 100 / 10_000
 
 
+def resample_clusters(sums: np.ndarray, *, resamples: int = RESAMPLES, seed: int = SEED) -> np.ndarray:
+    """Column totals of `sums` (one row per cluster, e.g. per entity) for each bootstrap resample of its rows:
+    shape (resamples, columns). Resampling whole clusters keeps correlated bets on one entity together."""
+    rng = np.random.default_rng(seed)
+    idx = rng.integers(0, len(sums), size=(resamples, len(sums)))
+    return sums[idx].sum(axis=1)
+
+
 def bootstrap(episodes: list[Episode], *, resamples: int = RESAMPLES, seed: int = SEED
               ) -> tuple[tuple[int, int], tuple[float, float], float] | None:
     """95% CIs of total PnL and ¢/contract, and P(¢/contract ≤ 0), resampling entities with their episodes."""
@@ -238,11 +246,8 @@ def bootstrap(episodes: list[Episode], *, resamples: int = RESAMPLES, seed: int 
         e[1] += ep.contracts
     if len(by) < 2:
         return None
-    arr = np.array(list(by.values()), dtype=np.float64)
-    rng = np.random.default_rng(seed)
-    idx = rng.integers(0, len(arr), size=(resamples, len(arr)))
-    pnl = arr[idx, 0].sum(axis=1)
-    qty = arr[idx, 1].sum(axis=1)
+    tot = resample_clusters(np.array(list(by.values()), dtype=np.float64), resamples=resamples, seed=seed)
+    pnl, qty = tot[:, 0], tot[:, 1]
     per = np.where(qty > 0, pnl / np.maximum(qty, 1) * 100 / 10_000, 0.0)
     lo, hi = np.percentile(pnl, [2.5, 97.5])
     clo, chi = np.percentile(per, [2.5, 97.5])

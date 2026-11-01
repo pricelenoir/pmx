@@ -85,8 +85,10 @@ which exits 0); `--live` makes the run agent trade live (with `--confirm prod` o
 
 `pmx ops backup --to /Volumes/Backup/pmx` (or `[ops] backup_dir`): raw logs are copied incrementally and
 verified by hash; each ledger is copied with SQLite's online backup API (consistent while the engine writes),
-checked with `PRAGMA integrity_check`, and kept `[ops] backup_keep_days` (14) days. Raw logs and the ledger are
-the only things that can't be rebuilt.
+checked with `PRAGMA integrity_check`, and kept `[ops] backup_keep_days` (14) days. The git-ignored working folders
+(`research/`, the private research workspace, and `planning/`) are mirrored too: new or changed files are copied,
+nothing at the destination is deleted. Raw logs, the ledger, and those folders are the only things that can't be
+rebuilt.
 
 ## Alerts
 

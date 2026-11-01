@@ -231,3 +231,19 @@ def test_ops_install_refuses_clearly_without_launchd(monkeypatch):
     monkeypatch.setattr(ops_cli.shutil, "which", lambda name: None)
     with pytest.raises(SystemExit, match="launchd agents"):
         cli.main(["ops", "install", "--record"])
+
+
+def test_backups_mirror_working_folders(tmp_path):
+    data, dest, notes = tmp_path / "data", tmp_path / "backup", tmp_path / "research"
+    (notes / "experiments" / "x").mkdir(parents=True)
+    (notes / "AGENDA.md").write_text("a")
+    (notes / "experiments" / "x" / "spec.md").write_text("s")
+    (notes / "__pycache__").mkdir()
+    (notes / "__pycache__" / "m.pyc").write_bytes(b"x")
+    data.mkdir()
+    assert backup(data, dest, folders=[notes, tmp_path / "missing"]).folders_copied == 2
+    assert (dest / "research" / "experiments" / "x" / "spec.md").read_text() == "s"
+    assert not (dest / "research" / "__pycache__").exists()
+    assert backup(data, dest, folders=[notes]).folders_copied == 0  # unchanged
+    (notes / "AGENDA.md").write_text("ab")
+    assert backup(data, dest, folders=[notes]).folders_copied == 1

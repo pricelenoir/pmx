@@ -17,7 +17,11 @@ from pmx.cli.common import common_parser
     ["cancel", "--all"], ["cancel", "pmx-a1-b2-3"], ["status"], ["positions", "--mode", "paper"],
     ["advise", "T", "--p", "0.62", "--expires", "10m"], ["guard", "--guard-s", "5"], ["doctor"],
     ["ops", "install", "--record", "--backup"], ["ops", "uninstall"], ["ops", "backup", "--to", "/tmp/x"],
-    ["data", "kalshi-history", "--seasons", "2025"], ["backtest", "report", "r1"], ["backtest", "compare", "a", "b"],
+    ["data", "kalshi-history", "--seasons", "2025"],
+    ["data", "kalshi", "--series", "KXHIGHNY", "--trades"],
+    ["research", "status"], ["research", "run", "weather-longshot", "--stage", "discovery"],
+    ["research", "close", "x", "--as", "dead", "--note", "n"], ["backtest", "report", "r1"],
+    ["backtest", "compare", "a", "b"],
     ["backtest", "view", "r1"], ["backtest", "--nfl-history", "--seasons", "2026"],
 ])
 def test_every_command_parses(argv):
@@ -32,7 +36,8 @@ def test_env_flag_after_subcommand():
 def test_commands_are_exactly_the_registered_subparsers_in_help_order():
     sub = next(a for a in build_parser()._actions if isinstance(a, argparse._SubParsersAction))
     names = ["markets", "book", "watch", "record", "compact", "account", "keygen", "setkey", "check",
-             "serve", "up", "down", "tui", "data", "run", "config", "halt", "resume", "backtest", "risk", "perf",
+             "serve", "up", "down", "tui", "data", "research", "run", "config", "halt", "resume", "backtest", "risk",
+             "perf",
              "export",
              "guard", "doctor", "ops", "order", "cancel", "status", "positions", "advise", "bench", "help"]
     assert list(sub.choices) == names
@@ -70,6 +75,7 @@ def test_each_area_registers_only_its_own_commands():
     assert owned["guard"] == owned["doctor"] == owned["ops"] == "pmx.cli.ops"
     assert owned["perf"] == owned["export"] == "pmx.cli.perf"
     assert owned["data"] == "pmx.cli.data"
+    assert owned["research"] == "pmx.cli.research"
 
 
 def test_main_runs_async_commands_in_a_loop_and_sync_ones_directly(monkeypatch):

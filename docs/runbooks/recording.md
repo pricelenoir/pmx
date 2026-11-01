@@ -23,16 +23,18 @@ written instead), and a laptop sleep writes a `sleep_gap` control record to ever
 ## Run it
 
 ```
-pmx record --env prod --series KXNFLGAME                     # everything configured; --sources espn | kalshi
+pmx record --env prod                       # everything in config/recorder.toml; --sources espn | kalshi
+pmx record --env prod --series KXNFLGAME    # only these series (overrides the config's list)
 ```
 
-Narrow `--series` on game days without a key: REST polling time is split across every market in the
-universe, so the default four series (~340 markets) would poll each book only every ~25 s.
+Use a key: the websocket records every configured series cheaply. Without one, REST polling time is split across
+every market in the universe, so narrow `--series` (the default list is several hundred markets; each book would
+be polled only every few minutes).
 
 **tmux** (simplest):
 
 ```
-tmux new -s rec 'pmx record --env prod --series KXNFLGAME 2>&1 | tee -a data/logs/record.log'
+tmux new -s rec 'pmx record --env prod 2>&1 | tee -a data/logs/record.log'
 # detach: ctrl-b d · reattach: tmux attach -t rec · stop: ctrl-c in the session
 ```
 
@@ -86,8 +88,9 @@ REST polling (no key, `--series KXNFLGAME`, 54 markets, one game live): `kalshi_
 books, ~4 written per second after skipping unchanged ones); `espn` ~1.8 MB/hour per live game (summaries are
 ~600 KB raw each). The websocket recording (`kalshi`, with a key) is far smaller: it stores deltas.
 
-Retention: raw days older than `[recorder] keep_days` (default 30, `config/recorder.toml`) are deleted
-by the running recorder once a day — but only days that `pmx compact` has turned into parquet. ESPN and
+Retention: raw days older than `[recorder] keep_days` (`config/recorder.toml` sets 3650; 30 if unset) are deleted
+by the running recorder once a day — but only days that `pmx compact` has turned into parquet. Compaction keeps
+only the top of book, so raw logs are the only record of order-book depth. ESPN and
 `kalshi_rest` have no compactor, so their raw logs are kept. `pmx record --dry-run-retention` lists
 what would go. Back raw logs up to a second disk (`pmx ops backup`).
 

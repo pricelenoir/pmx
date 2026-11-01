@@ -65,9 +65,11 @@ def cmd_ops(args: argparse.Namespace) -> None:
         dest = args.to or ops.backup_dir
         if not dest:
             die("no backup destination; pass --to DIR or set [ops] backup_dir in config/strategies.toml")
-        r = backup(config.data_root(), Path(dest).expanduser(), keep_days=args.keep_days or ops.backup_keep_days)
+        r = backup(config.data_root(), Path(dest).expanduser(), keep_days=args.keep_days or ops.backup_keep_days,
+                   folders=[config.research_root(), config.PROJECT / "planning"])
         print(f"raw: {r.raw_copied} files copied ({r.raw_bytes / 1e6:,.1f} MB), {r.raw_current} already current; "
-              f"ledgers: {', '.join(p.name for p in r.ledgers) or 'none'}; {r.pruned} old ledger copies pruned")
+              f"ledgers: {', '.join(p.name for p in r.ledgers) or 'none'}; {r.pruned} old ledger copies pruned; "
+              f"research + planning: {r.folders_copied} files copied")
         for p in r.problems:
             print(f"  ! {p}")
         if r.problems:

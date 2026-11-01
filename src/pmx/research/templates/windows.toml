@@ -1,0 +1,4 @@
+# Which markets each stage sees and is judged on, by close time (UTC). Roll forward every few months:
+# move both dates on, so the newest months become the locked holdout again.
+discovery_end = 2026-01-01   # discovery: markets closing before this
+validation_end = 2026-07-01  # validation: [discovery_end, validation_end) · holdout: on or after

@@ -14,11 +14,11 @@ import logging
 from collections.abc import Callable
 
 from pmx import config
-from pmx.cli import account, backtest, bench, control, data, feed, market, ops, perf, record, risk, run
+from pmx.cli import account, backtest, bench, control, data, feed, market, ops, perf, record, research, risk, run
 from pmx.cli.common import common_parser
 
 # Each area module owns its commands: `register(sub, common) -> {name: fn}`. Order = `pmx --help` order.
-AREAS = (market, record, account, feed, data, run, backtest, risk, perf, ops, control, bench)
+AREAS = (market, record, account, feed, data, research, run, backtest, risk, perf, ops, control, bench)
 
 
 def _build() -> tuple[argparse.ArgumentParser, dict[str, Callable]]:

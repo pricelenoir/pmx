@@ -16,6 +16,7 @@ data/
 
 # Local development notes and agent instructions (not published)
 planning/
+/research/
 CLAUDE.local.md
 
 # Local agent tooling

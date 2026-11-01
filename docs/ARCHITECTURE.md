@@ -74,8 +74,85 @@ combination of settings, not a new engine feature.
 
 ### How the blocks connect
 
-Rendered diagrams (the processes and storage; one event's path through risk) are in the repo's
-[`README.md`](../README.md#how-it-works).
+#### The system
+
+Processes, what they talk over, and where data lands. Only the engine trades; the feed, the TUI, and the recorder only
+watch, and nothing they do can slow it down.
+
+```mermaid
+flowchart LR
+    kalshi["Kalshi<br/>REST + websocket"]
+    espn["ESPN<br/>scoreboard · play-by-play"]
+    advisor["Advisor worker<br/>AI agents: advice, never orders"]
+    modelw["Model worker<br/>slow models"]
+
+    subgraph run["pmx run · the engine process · the only thing that trades"]
+        sources["Sources<br/>kalshi_market · kalshi_account<br/>espn_nfl · timer · custom"]
+        core["State → Models → Strategy slots<br/>→ Order manager → Risk<br/>→ Order scheduler → Broker<br/>+ Portfolio tracker"]
+        sources --> core
+    end
+
+    feed["Feed process<br/>snapshots · conflation · fan-out"]
+    tui["pmx tui<br/>dashboard, view only"]
+    cli["pmx status · order · cancel<br/>halt · resume · risk"]
+    guard["pmx guard<br/>live engine's dead-man switch"]
+    ledger[("data/ledger.sqlite<br/>orders · fills · equity<br/>runs · settlements")]
+
+    recorder["pmx record"]
+    raw[("data/raw/<br/>verbatim frames")]
+    bt["pmx backtest<br/>same engine, simulated clock"]
+    btout[("data/backtests/RUN/<br/>own ledger + report")]
+
+    kalshi -- "books · trades · fills" --> sources
+    espn -- "game state" --> sources
+    advisor -- "Advice" --> sources
+    core -- "orders" --> kalshi
+    core <--> modelw
+    core -- "tap, never blocks" --> feed
+    feed -- "pmx.sock" --> tui
+    cli <-- "pmx-ctl.sock" --> core
+    core -- "every order and fill" --> ledger
+    guard -. "engine died: cancel its orders" .-> kalshi
+    kalshi --> recorder
+    espn --> recorder
+    recorder --> raw --> bt --> btout
+```
+
+#### One event, one order
+
+Every input runs this path to completion before the next one starts, so live, paper and backtests make the same
+decisions from the same data. A strategy only asks; the platform decides what reaches the venue.
+
+```mermaid
+flowchart TB
+    input["Input event<br/>book delta · trade · game state · timer · fill"]
+    state["State<br/>books · contracts · linked entities · forecasts · advice"]
+    router["Router<br/>to the slots the event concerns"]
+    slot["Strategy slot · one per strategy × market<br/>own position, PnL, limits, failures<br/>asks: quote · take · target"]
+    om["Order manager<br/>intents → place / cancel · refuses self-crosses"]
+    risk{"Risk checks"}
+    sched["Order scheduler<br/>cancels first · round robin · venue write limits"]
+    broker["Broker<br/>paper simulator or Kalshi live"]
+    ledger[("ledger.sqlite")]
+
+    models["Models<br/>→ Forecast per market"]
+    paper["Paper broker<br/>fills resting paper orders"]
+    tracker["Portfolio tracker<br/>marks · equity · PnL per outcome"]
+
+    input --> state --> router --> slot
+    slot -- "intents" --> om --> risk
+    risk -- "passes" --> sched --> broker
+    broker -- "order updates · fills" --> ledger
+
+    state --> models -- "forecasts" --> router
+    state --> paper
+    state --> tracker
+    risk -- "RiskReject: rule + reason" --> slot
+    broker -- "fills" --> tracker
+    tracker -- "portfolio limits" --> risk
+```
+
+The same flow as text, with the components named:
 
 ```
  sources ──► engine queue ──► state ──► models (shared; in loop or model process) ──► Forecast events
@@ -355,10 +432,12 @@ src/pmx/
   testing/        the scenario kit for strategy tests
   bench/          load benchmarks: feed, core, engine, soak, viewer
   harness/        model evaluation: metrics, nfl_eval, kalshi_history
+  research/       experiments: kalshi_data (any series), windows, catalog, panel (+ asof), costs, evaluate,
+                  spec, workspace (lifecycle, trials), runner, report, templates/ (docs/RESEARCH.md)
   cli/            one module per command area
 tui/              Rust (ratatui) viewer: proto, feed, app, ui, charts, views/{markets,portfolio,strategies,slots,log}
 config/           strategies.toml (`pmx run` / `serve` / `tui`) · recorder.toml (`pmx record`) · scripts/
-docs/             architecture, guide, runbooks
+docs/             architecture, guide, research, runbooks
 tests/            pytest; fixtures under tests/fixtures/
 ```
 
@@ -1565,8 +1644,8 @@ pmx.sock, pmx.pid                                   feed socket (read-only) + pi
 pmx-ctl.sock                                        control socket
 ```
 
-Raw days are kept `[recorder] keep_days` once compacted to parquet. `pmx ops backup` copies `raw/` and the ledger
-to another disk daily.
+Raw days are kept `[recorder] keep_days` once compacted to parquet. `pmx ops backup` copies `raw/`, the ledger, and
+the research workspace to another disk daily.
 
 ## Failure handling
 

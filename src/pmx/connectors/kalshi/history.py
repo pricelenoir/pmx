@@ -13,6 +13,7 @@ from datetime import datetime
 import msgspec
 
 from pmx.connectors.kalshi.rest import KalshiRest
+from pmx.connectors.kalshi.wire import WireTradesPage
 from pmx.core.units import Price, Qty, parse_price, parse_qty
 
 MAX_CANDLES = 5_000
@@ -30,6 +31,11 @@ class HistMarket(msgspec.Struct):
     yes_sub_title: str = ""
     volume_fp: str | None = None
     settlement_value_dollars: str | None = None
+    open_time: str | None = None
+    strike_type: str = ""  # greater, less, between, … — with floor/cap, a ladder's structure without domain code
+    floor_strike: float | None = None
+    cap_strike: float | None = None
+    title: str = ""
 
 
 class _MarketsPage(msgspec.Struct):
@@ -181,3 +187,28 @@ async def candles(rest: KalshiRest, series: str, ticker: str, start_ms: int, end
             out += [_live(c) for c in page_l.candlesticks]
         start_s = chunk_end + 60
     return out
+
+
+class HistTrade(msgspec.Struct, frozen=True):
+    """One public print, YES terms: `taker_yes` when the taker bought YES."""
+
+    trade_id: str
+    ts_ms: int
+    price: Price
+    qty: Qty
+    taker_yes: bool
+
+
+async def trades(rest: KalshiRest, ticker: str, *, archived: bool) -> list[HistTrade]:
+    """Every print of `ticker`, oldest first. Archived markets' prints are only on `/historical/trades`."""
+    path = "/historical/trades" if archived else "/markets/trades"
+    out: list[HistTrade] = []
+    cursor = None
+    while True:
+        page = msgspec.json.decode(await rest.get(path, {"ticker": ticker, "limit": 1000} | (
+            {"cursor": cursor} if cursor else {})), type=WireTradesPage)
+        out += [HistTrade(t.trade_id, ts_ms(t.created_time) or 0, parse_price(t.yes_price_dollars),
+                          parse_qty(t.count_fp), t.taker_side == "yes") for t in page.trades]
+        cursor = page.cursor
+        if not cursor or not page.trades:
+            return sorted(out, key=lambda t: (t.ts_ms, t.trade_id))

@@ -30,6 +30,9 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+"pmx.research" = ["templates/*", "templates/experiment/*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]  # tests import `tests.conftest`; plain `pytest` / `uv run pytest` need the repo root

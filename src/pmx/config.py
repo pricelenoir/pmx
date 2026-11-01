@@ -20,6 +20,11 @@ def data_root() -> Path:
     return Path(os.environ.get("PMX_DATA", PROJECT / "data"))
 
 
+def research_root() -> Path:
+    """The private research workspace (git-ignored): hypotheses, specs, results."""
+    return Path(os.environ.get("PMX_RESEARCH", PROJECT / "research"))
+
+
 def socket_path() -> Path:
     """Where `pmx serve` listens for viewers."""
     return Path(os.environ.get("PMX_SOCK", data_root() / "pmx.sock"))

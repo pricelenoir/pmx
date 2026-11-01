@@ -1,4 +1,5 @@
-"""Backups: `pmx ops backup` copies what can't be rebuilt — raw logs and the ledger — to a second place.
+"""Backups: `pmx ops backup` copies what can't be rebuilt — raw logs, the ledger, and the git-ignored working folders
+(the research workspace, planning notes) — to a second place.
 
 Raw logs are append-only hourly files, so a copy is incremental: a file whose size differs at the destination is
 copied again (to a temporary name, then renamed) and verified by hash. Each ledger (`*.sqlite` under the data
@@ -12,6 +13,7 @@ import os
 import shutil
 import sqlite3
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -24,6 +26,7 @@ class Report:
     raw_current: int = 0
     ledgers: list[Path] = field(default_factory=list)
     pruned: int = 0
+    folders_copied: int = 0
     problems: list[str] = field(default_factory=list)
 
 
@@ -38,9 +41,30 @@ def _digest(path: Path, limit: int | None = None) -> str:
     return h.hexdigest()
 
 
-def backup(data: Path, dest: Path, *, keep_days: int = 14, now: float | None = None) -> Report:
+def _mirror(src: Path, dest: Path) -> int:
+    """Copy files new or changed (size or mtime) since the last copy; nothing at the destination is deleted."""
+    n = 0
+    for f in sorted(src.rglob("*")):
+        if not f.is_file() or "__pycache__" in f.parts:
+            continue
+        target = dest / f.relative_to(src)
+        st = f.stat()
+        if target.exists() and target.stat().st_size == st.st_size and target.stat().st_mtime == st.st_mtime:
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(f, target)
+        n += 1
+    return n
+
+
+def backup(data: Path, dest: Path, *, keep_days: int = 14, now: float | None = None,
+           folders: Iterable[Path] = ()) -> Report:
+    """`folders` (e.g. research/, planning/) are mirrored to `dest/<folder name>/`."""
     now = time.time() if now is None else now
     r = Report()
+    for folder in folders:
+        if folder.is_dir():
+            r.folders_copied += _mirror(folder, dest / folder.name)
     raw = data / "raw"
     for src in sorted(raw.rglob("*.log.zst")) if raw.is_dir() else []:
         target = dest / "raw" / src.relative_to(raw)

@@ -6,6 +6,8 @@ missing something — raise it rather than working around it.
 
 ## The development loop for a strategy
 
+0. **Find the edge first** with a pre-registered experiment on history ([`RESEARCH.md`](RESEARCH.md)); a promoted
+   experiment's rule and expected edge are what the strategy implements and is held to.
 1. **Write it for one market** (`strategies/<name>.py`).
 2. **Scenario-test it** with `pmx.testing.Scenario`: scripted books/forecasts/data → assert
    the orders it wants. Fast, no network.
