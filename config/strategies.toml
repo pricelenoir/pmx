@@ -49,6 +49,12 @@ kind = "espn_wp"                    # pass-through of ESPN's win probability
 name = "mid"                        # a second model running alongside, for comparison
 kind = "market_mid"
 
+# [ops]                             # running unattended (docs/runbooks/operations.md, linux-vm.md; pmx help live)
+# min_paper_days = 10               # `pmx run --live`: paper trading needed with a strategy's current params
+# live_order_ttl_s = 600            # live resting orders expire at Kalshi after this; pmx renews them while it runs
+# backup_dir = "~/pmx-backup"       # `pmx ops backup` copies raw logs, ledgers, research/ here …
+# backup_sync = ["aws", "s3", "sync", "{dir}", "s3://my-pmx-backups/vm"]   # … then ships the copy off the machine
+
 [manual]                            # limits for orders placed by hand (`pmx order`)
 risk = { max_position = "20", max_order_qty = "10", max_loss = "10.00" }
 

@@ -18,6 +18,7 @@ log = logging.getLogger(__name__)
 
 async def cmd_record(args: argparse.Namespace) -> None:
     from pmx import plugins
+    from pmx.ops.notify import UptimePing
     from pmx.recorder import retention
     from pmx.recorder.sink import RecordingSink
     from pmx.sources.base import build_source
@@ -66,6 +67,7 @@ async def cmd_record(args: argparse.Namespace) -> None:
         from pmx.ops.health import recorder_health, write
 
         next_retention = next_progress = 0.0
+        uptime = UptimePing()
         while not stop.is_set():
             now = time.monotonic()
             if now >= next_retention:
@@ -77,6 +79,7 @@ async def cmd_record(args: argparse.Namespace) -> None:
                 log.info("recorded so far: %s", ", ".join(f"{k} {n}" for k, n in sink.records.items()) or "nothing")
                 next_progress = now + 60
             write(root / "health-record.json", recorder_health(sink, root))
+            uptime.beat()
             try:
                 await asyncio.wait_for(stop.wait(), timeout=10)
             except TimeoutError:

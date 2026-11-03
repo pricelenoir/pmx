@@ -309,6 +309,14 @@ the socket and exits with it. `pmx run` refuses to start while another engine ho
   this engine instance when the engine's heartbeat stops for `guard_s` (default 10 s); it is
   started by `pmx up`/`pmx run --live`, and a live run doesn't start without it. Kalshi has no
   cancel-on-disconnect, so this is the protection.
+- **Nothing rests forever.** The guard dies with its machine, so live resting orders (quotes and manual orders)
+  carry a venue expiry `[ops] live_order_ttl_s` (600 s) ahead; when the venue expires one, the order manager places
+  it again at once (same price, what's left). If the machine is gone, everything is off the book within the TTL.
+  `PMX_UPTIME_URL` (a dead-man ping every minute from the engine and the recorder) tells you it's gone.
+- **Promotion gate.** `pmx run --live` refuses a live strategy without paper fills under its current params spanning
+  `[ops] min_paper_days` (10), or whose paper verdict is `unprofitable` (`analytics/gate.py`);
+  `--skip-paper-check REASON` overrides it, logged. Params, not commits, define the record: a commit that doesn't
+  change a strategy's params keeps its paper history.
 - **No self-trades.** Two slots (or a manual order and a slot) can quote the same market; a
   buy crossing our own sell is a wash trade, which regulated exchanges prohibit. The order
   manager rejects any order that would cross one of our working orders on that market, in
@@ -422,13 +430,13 @@ src/pmx/
   execution/      risk, orders (OrderManager), scheduler, paper, live (LiveBroker), broker, algos (target positions)
   advisors/       base (Advisor, StateView, AdvisorEnv), view (FeedView), worker · reference/ (scripted_advice)
   portfolio/      tracker (positions, marks, PnL, equity, exposures, markouts), scenarios, metrics (limit usage)
-  analytics/      stats, breakdowns, verdict, publish (performance from the ledger)
+  analytics/      stats, breakdowns, verdict, publish (performance from the ledger), gate (paper → live)
   backtest/       runner (Runner, walk_forward), raw_source (RawLogSource), nfl_history (candle fidelity), report
   recorder/       rawlog, sink (any source), daemon, replay (+ merged), compact, retention
   ledger/         db (orders, fills, equity, runs, settlements, checkpoints; positions derived)
   feed/           proto (v3), hub, publisher (conflation), server (feed process + EngineLink), demo (+ LoadGen), sources
   control/        protocol, server, client: manual orders, cancel, halt, status, positions, advice
-  ops/            guard, health, alerts, notify, awake, backup, doctor, launchd
+  ops/            guard, health, alerts, notify (desktop + webhook), awake, backup, doctor, launchd, systemd
   testing/        the scenario kit for strategy tests
   bench/          load benchmarks: feed, core, engine, soak, viewer
   harness/        model evaluation: metrics, nfl_eval, kalshi_history
@@ -437,7 +445,8 @@ src/pmx/
   cli/            one module per command area
 tui/              Rust (ratatui) viewer: proto, feed, app, ui, charts, views/{markets,portfolio,strategies,slots,log}
 config/           strategies.toml (`pmx run` / `serve` / `tui`) · recorder.toml (`pmx record`) · scripts/
-docs/             architecture, guide, research, runbooks
+docs/             architecture, guide, research, runbooks (operations, recording, linux-vm)
+scripts/          setup-linux.sh (a server: packages, uv + venv, time sync, lingering)
 tests/            pytest; fixtures under tests/fixtures/
 ```
 
@@ -1243,8 +1252,9 @@ class OrderScheduler(rate=100, burst=100, cost=10, take_ttl_ms=1_000)   # execut
 class PaperBroker                               # execution/paper.py
 class LiveBroker(venue, *, instance, emit, clock, ledger=None, live=(), positions=…)   # execution/live.py
     # a SyncBroker: place_now / cancel_now start the venue call and return []; results arrive as events via emit
-    async def reconcile(why="") -> None         # start, every account-stream reconnect, unknown outcomes
-    def reconcile_soon() · working() -> [LiveOrder] · async drain(timeout)
+    async def reconcile(why="") -> None         # start, every account-stream reconnect, unknown outcomes, hourly
+    def reconcile_soon(why="") · working() -> [LiveOrder] · async drain(timeout)
+EXPIRED = "expired"                             # core/types.py: reason on a `canceled` update the venue's expiry caused
 class Brokers(*brokers)                         # execution/broker.py: the engine's broker step over paper + live
 ADOPTED = "adopted from an earlier run"         # reason on an `open` live update for an earlier run's order
 
@@ -1327,8 +1337,12 @@ the outcome is unknown (5xx, timeout) — that slot gets no new orders (`unresol
 and an `open` update with reason `ADOPTED` is an earlier run's resting order, which the order manager takes on as a
 working quote. Reconciliation: the venue's resting orders (this instance's synced, adopted when their strategy is live
 here, else canceled; other pmx instances' warned about and left; anyone else's never touched), unknown or unobserved
-orders resolved, fills since the ledger's last, then balance + positions. Positions are cross-checked on every
-`AccountSnapshot`; the live balance is the venue's minus the collateral of orders sent since it. Kalshi offers no
+orders resolved, fills since the ledger's last, then balance + positions; it runs at start, on every reconnect, and
+every `reconcile_s` (hourly), and an hourly pass that finds fills the account stream missed warns. Positions are
+cross-checked on every `AccountSnapshot`; the live balance is the venue's minus the collateral of orders sent since it.
+Every live-broker warning or error is an alert. An `OrderRequest` with `expires_ms` is sent with Kalshi's
+`expiration_time`; Kalshi reports the expiry only as `canceled` at that time, which the wire layer turns into reason
+`EXPIRED`. Kalshi offers no
 cancel-on-disconnect, so every live run starts `pmx guard` (`ops/guard.py`: the engine's
 heartbeat file + control socket; it cancels this instance's resting orders when the engine dies or hangs); orders
 are sent with `cancel_order_on_pause` and `taker_at_cross` self-trade prevention.
@@ -1656,7 +1670,8 @@ the research workspace to another disk daily.
 | Model exception | log; disable that model for that entity/ticker; engine continues |
 | Slot exception | log; halt that slot only and cancel its orders; other slots continue |
 | Order 5xx | order `pending`; reconcile via REST before any new order in that slot |
-| Engine crash | live orders persist at Kalshi; on restart reconcile open orders + fills before trading |
+| Engine crash | `pmx guard` cancels live orders within `guard_s`; on restart reconcile open orders + fills before trading |
+| Machine gone (engine and guard) | live resting orders expire at Kalshi within `live_order_ttl_s`; the uptime ping stops |
 | Loss limit | halt at the limit's scope (slot / strategy / global) and cancel its orders |
 | Portfolio limit (capital at risk, worst case, entity risk, drawdown) | reject orders that would increase the breach; drawdown breach halts the scope |
 | Feed process slow or down | engine keeps trading; the tap ring drops observability events (counted); viewers resync on reconnect |

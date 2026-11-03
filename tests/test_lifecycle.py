@@ -48,13 +48,13 @@ def test_up_runs_headless_and_down_stops_it(tmp_path):
     sock = ["--demo", "--socket", "x.sock"]  # relative: AF_UNIX paths are short
     up = _pmx("up", *sock, cwd=tmp_path, env=env)
     assert up.returncode == 0, up.stderr
-    assert "running in the background" in up.stdout
+    assert "pmx is running" in up.stdout
     assert "pmx down --demo --socket x.sock" in up.stdout, "hints name this instance"
     pid = lifecycle.read_pid(tmp_path / "x.pid")
     assert pid is not None and (tmp_path / "x.sock").exists()
     try:
         again = _pmx("up", *sock, cwd=tmp_path, env=env)
-        assert f"already running (pid {pid}" in again.stdout
+        assert "already running" in again.stdout and f"pid {pid}" in again.stdout
     finally:
         down = _pmx("down", *sock, cwd=tmp_path, env=env)
     assert down.returncode == 0 and "stopped" in down.stdout, down.stderr

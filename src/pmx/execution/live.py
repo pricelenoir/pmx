@@ -10,16 +10,20 @@ A create that fails with a 5xx or a timeout may have executed: the order is repo
 unknown), its slot gets no new orders, and reconciliation decides. Cancels are idempotent, so a failed cancel
 is retried; one for an order the venue no longer has asks the venue what became of it.
 
-Reconciliation runs at start and on every reconnect of the account stream: the venue's resting orders — this
+Reconciliation runs at start, on every reconnect of the account stream, and every `reconcile_s` while running: the
+venue's resting orders — this
 instance's are synced, adopted (an earlier run's, when its strategy is still live here) or canceled (no live
 strategy owns them); other pmx instances' are left alone with a warning; anyone else's are never touched —
 then orders whose outcome is unknown or that finished unobserved, then the fills since the last one in the
 ledger, then the balance and positions (so the live balance is known before the first order at start). Positions
-are cross-checked against each `AccountSnapshot`; a mismatch seen twice is a loud warning.
+are cross-checked against each `AccountSnapshot`; a mismatch seen twice is a loud warning. A periodic pass that
+finds fills the account stream never delivered says so (they're booked either way).
 
 `queue_ahead` estimates each resting order's place in line: the size displayed at its price when its ack
 arrived, minus prints at that price since, floored at 0; a venue book reset forgets it until the next snapshot.
-While orders rest, `run` corrects it every `queue_s` from the venue's own count (`queue_positions`).
+While orders rest, `run` corrects it every `queue_s` from the venue's own count (`queue_positions`). On the same
+tick it asks the venue about each order still open past its `expires_ms`, in case the account stream's expiry
+(`ExpiryCancel`) never arrived; either way the update says `EXPIRED` and the order manager renews the order.
 Reported fees are compared with the series schedule; the venue's rounding to its balance precision (a
 rounding fee, rebated across an order's fills) is within `FEE_SLACK` and not reported."""
 
@@ -47,12 +51,15 @@ log = logging.getLogger(__name__)
 
 FEE_SLACK: Micros = 100  # Kalshi rounds each fill's balance change to $0.0001 (a direct member's precision)
 _STATUS = {"resting": "open", "executed": "filled", "canceled": "canceled"}
+PERIODIC = "hourly"  # reconcile's `why` for the pass `run` makes every `reconcile_s`
+EXPIRY_GRACE_MS = 2_000  # after an order's expiry, before asking the venue (its clock, its lists' lag)
+EXPIRY_RECHECK_MS = 30_000
 _FINAL = frozenset({"filled", "canceled", "rejected"})
 
 
 class LiveOrder:
     __slots__ = ("req", "slot", "mid", "order_id", "filled", "booked", "status", "cancel", "unknown", "ahead",
-                 "placed_ms")
+                 "placed_ms", "asked_ms")
 
     def __init__(self, req: OrderRequest, slot: str, placed_ms: int) -> None:
         self.req, self.slot, self.mid, self.placed_ms = req, slot, market_id(req.venue, req.ticker), placed_ms
@@ -63,6 +70,7 @@ class LiveOrder:
         self.cancel = False  # wanted canceled before the venue gave us its id
         self.unknown = False  # the create's outcome is unknown until reconciliation
         self.ahead: Qty | None = None
+        self.asked_ms: int | None = None  # when we last asked the venue whether it expired
 
     @property
     def final(self) -> bool:
@@ -93,6 +101,7 @@ class LiveBroker:
         self._tasks: set[asyncio.Task] = set()
         self._reconciling: asyncio.Task | None = None
         self._again = False
+        self._why = ""
         self._recheck = False
         self._mismatch: dict[str, tuple[Qty, Qty]] = {}  # ticker -> (venue, ours) at the last snapshot
         self._warned: set[tuple[str, Qty, Qty]] = set()
@@ -284,8 +293,9 @@ class LiveBroker:
 
     # ---- reconciliation -------------------------------------------------------------------------------------
 
-    def reconcile_soon(self) -> None:
+    def reconcile_soon(self, why: str = "") -> None:
         """Reconcile now, or again right after the one running."""
+        self._why = why
         if self._reconciling is not None and not self._reconciling.done():
             self._again = True
             return
@@ -294,8 +304,9 @@ class LiveBroker:
     async def _reconcile_loop(self) -> None:
         while True:
             self._again = False
+            why, self._why = self._why, ""
             try:
-                await self.reconcile()
+                await self.reconcile(why)
             except (KalshiError, httpx.HTTPError) as e:
                 self._log("error", f"reconciliation failed: {e}; trying again in 5 s")
                 await asyncio.sleep(5)
@@ -347,10 +358,14 @@ class LiveBroker:
                     self.emit(await self.venue.order(o.order_id))  # type: ignore[arg-type]
         if why == "start" and self.ledger is not None:
             await self._close_orphans(on_venue)
-        since = self.ledger.last_fill_ms("live") if self.ledger is not None else None
-        for f in await self.venue.fills(since_ms=None if since is None else since - 60_000):
+        missed = 0
+        for f in await self.venue.fills(since_ms=self._fills_since()):
             if f.fill_id not in self._fill_ids:
                 self.emit(f)
+                missed += 1
+        if missed and why == PERIODIC:
+            self._log("warn", f"{missed} fills reached pmx only through reconciliation (the account stream missed "
+                              "them); booked now")
         balance, shards = await self.venue.balances()
         self.emit(AccountSnapshot(balance, await self.venue.positions(), self.clock(), shards))
         parts = [f"{len(resting)} resting at the venue"]
@@ -360,6 +375,17 @@ class LiveBroker:
         if others:
             self._log("warn", f"{others} resting orders belong to another pmx instance on this account: left alone "
                               "(one engine per account)")
+
+    def _fills_since(self) -> int:
+        """Where catching up on fills starts: the ledger's last live fill, or the oldest live order still open (in
+        the ledger or here). A fresh ledger with nothing open starts now: the account's older fills belong to other
+        data dirs, and would all read as fills pmx didn't place."""
+        starts = [o.placed_ms for o in self.orders.values() if not o.final]
+        if self.ledger is not None:
+            last = self.ledger.last_fill_ms("live")
+            starts += [last] if last is not None else []
+            starts += [row["created_ms"] for row in self.ledger.open_orders("live")]
+        return min(starts, default=self.clock()) - 60_000
 
     async def _close_orphans(self, on_venue: set[str]) -> None:
         """An earlier run's live orders the ledger still has working, finished at the venue while no engine
@@ -403,15 +429,34 @@ class LiveBroker:
     # ---- the venue's queue positions -----------------------------------------------------------------------
 
     queue_s = 10.0
+    reconcile_s = 3600.0
 
     async def run(self, stop: asyncio.Event) -> None:
         from pmx.sources.base import sleep_or_stop
 
+        next_reconcile = self.clock() + self.reconcile_s * 1000
         while not await sleep_or_stop(stop, self.queue_s):
+            if self.clock() >= next_reconcile:
+                next_reconcile = self.clock() + self.reconcile_s * 1000
+                self.reconcile_soon(PERIODIC)
+            self.check_expired()
             try:
                 await self.refresh_queue()
             except (KalshiError, httpx.HTTPError) as e:
                 log.info("queue positions unavailable: %s", e)
+
+    def check_expired(self) -> int:
+        """Ask the venue about open orders past their expiry (again every `EXPIRY_RECHECK_MS` while it says resting)."""
+        now, n = self.clock(), 0
+        for o in self.orders.values():
+            exp = o.req.expires_ms
+            if (o.status != "open" or o.order_id is None or exp is None or now < exp + EXPIRY_GRACE_MS
+                    or (o.asked_ms is not None and now - o.asked_ms < EXPIRY_RECHECK_MS)):
+                continue
+            o.asked_ms = now
+            self._spawn(self._refresh(o))
+            n += 1
+        return n
 
     async def refresh_queue(self) -> int:
         """Set each resting order's place in line from the venue; returns how many were known."""

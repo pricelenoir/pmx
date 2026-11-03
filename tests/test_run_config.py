@@ -167,7 +167,7 @@ def test_halt_and_resume_commands(tmp_path, monkeypatch, capsys):
     main(["halt", "smoke", "--reason", "odd fills"])
     main(["halt", "nfl-watch/KXFED-X"])
     assert read_halts(tmp_path / "HALT") == {"smoke": "odd fills", "nfl-watch/KXFED-X": "pmx halt"}
-    assert "halted strategy smoke: odd fills" in capsys.readouterr().out
+    assert "⏸ halted strategy smoke  odd fills" in capsys.readouterr().out
     with pytest.raises(SystemExit, match="is not a slot ID"):
         main(["halt", "--scope", "slot", "smoke"])
     main(["resume", "smoke"])

@@ -83,6 +83,9 @@ class Contract(msgspec.Struct, frozen=True):
     shard: int = 0  # the venue's exchange shard (Kalshi `exchange_index`): balances are per shard
 
 
+EXPIRED = "expired"  # an order update's reason when the venue canceled a resting order at its expiry
+
+
 class OrderRequest(msgspec.Struct, frozen=True):
     venue: str
     ticker: str
@@ -93,6 +96,7 @@ class OrderRequest(msgspec.Struct, frozen=True):
     post_only: bool = False
     client_order_id: str = msgspec.field(default_factory=lambda: uuid.uuid4().hex)
     strategy: str = ""
+    expires_ms: int | None = None  # a resting order the venue cancels by itself at this time (gtc only)
 
 
 class OrderAck(msgspec.Struct, frozen=True):

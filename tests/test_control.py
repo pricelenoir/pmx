@@ -128,4 +128,4 @@ def test_pmx_halt_falls_back_to_the_kill_switch_file_and_clients_say_when_nothin
     with pytest.raises(NotRunning, match="start one with `pmx up`"):
         asyncio.run(request(tmp_path / "nothing-ctl.sock", protocol.Status()))
     main(["status"])
-    assert "the engine is not responding" in capsys.readouterr().out, "then whatever the health files say"
+    assert "the engine isn't running" in capsys.readouterr().out, "then whatever the health files say"

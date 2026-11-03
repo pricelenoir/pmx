@@ -197,6 +197,8 @@ class KalshiRest:
             "post_only": req.post_only,
             "cancel_order_on_pause": True,  # the venue pulls it if trading pauses, even with pmx down
         }
+        if req.expires_ms is not None and req.tif == "gtc":
+            body["expiration_time"] = -(-req.expires_ms // 1000)  # whole seconds, never earlier than asked
         raw = await self._request("POST", "/portfolio/events/orders", body=body, auth=True, write=True)
         return msgspec.json.decode(raw, type=wire.WireOrderCreated)
 

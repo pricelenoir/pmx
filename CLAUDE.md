@@ -7,7 +7,8 @@ models, strategies, advisors) before changing code.
 ## Commands
 
 ```
-pmx help [CMD] [--all]                  # every command with a one-liner; CMD's options; --all: every command's options
+pmx help [GUIDE|CMD] [--all]            # the manual (cli/manual.py): an overview by task, guides (start, run, live, …),
+                                        #   a command's options + examples; plain `pmx` shows the overview
 pmx markets --series KXNFLGAME --env prod
 pmx book TICKER --env prod
 pmx watch TICKER ...                    # needs API key (websocket is authenticated)
@@ -26,8 +27,12 @@ pmx up --env prod                       # pmx run headless in the background (da
 pmx halt [ID] [--reason …]              # kill switch (data/HALT): everything, a strategy, or a slot <strategy>/<ticker>; pmx resume
 pmx order buy TICKER 5 @ 0.40 [--mode live] [--ioc]   # manual orders via data/pmx-ctl.sock: slot manual/<ticker>
 pmx cancel --all · status · positions · advise TICKER --p 0.6   # the running engine (status: or its health file)
-pmx run --env demo --live               # live: starts `pmx guard` (cancels this instance's orders if the engine dies)
-pmx doctor                              # venv = uv.lock, TUI, keys 0600, clock, disk;  pmx ops install|uninstall|backup
+pmx run --env demo --live               # live: the promotion gate (paper record; --skip-paper-check REASON), then
+                                        #   `pmx guard`; live resting orders expire at Kalshi after [ops] live_order_ttl_s
+pmx doctor                              # venv = uv.lock, TUI, keys 0600, clock, disk, services, alerts
+pmx ops install|uninstall|status|backup|alert-test   # launchd (macOS) or systemd user services (Linux)
+pmx remote HOST tui|logs|<cmd>          # over SSH: the dashboard on a forwarded feed socket, logs, any command
+                                        #   (server setup: scripts/setup-linux.sh, docs/runbooks/linux-vm.md)
 pmx risk [--mode paper]                 # the running engine's portfolio: equity, capital at risk, scenarios, limit usage
 pmx backtest --from DAY [--to DAY] [--sources kalshi,espn]   # recorded days through the config → data/backtests/
                                         #   (--from/--to also take instants, DAYTHH:MM:SSZ: replay a live session)
@@ -86,11 +91,12 @@ recorder/ (rawlog, sink, daemon, replay, compact, retention) · sources/ (base, 
 execution/ (risk, orders: OrderManager, scheduler, paper, live: LiveBroker, broker) · ledger/ · plugins.py (registries, build_params) ·
 portfolio/ (tracker: PortfolioTracker, scenarios: outcome netting, metrics: limit usage) ·
 advisors/ (base, view: FeedView, worker: AdvisorRunner + AdvisorLink; reference/scripted_advice) · testing/ (Scenario) ·
-bench/ (feed, core, engine, soak, viewer) · control/ (protocol, server, client) · ops/ (guard, health, alerts, awake, backup, doctor, launchd) · backtest/ (runner: Runner, walk_forward; raw_source: RawLogSource) ·
+bench/ (feed, core, engine, soak, viewer) · control/ (protocol, server, client) · ops/ (guard, health, alerts, notify: desktop + webhook, awake, backup, doctor, launchd, systemd) · backtest/ (runner: Runner, walk_forward; raw_source: RawLogSource) ·
 engine/ (events, clock, state, engine: dispatcher + Tap, slots: Router, config: RunConfig, run: System) ·
 strategies/ (base: Strategy, contexts, intents; reference/: noop, watch, scripted) · lifecycle.py ·
 feed/ (proto v3, hub, publisher, server: feed process + EngineLink, demo + LoadGen, sources) ·
-cli/ (one module per area, each `register(sub, common) -> {name: fn}`; `AREAS` in `cli/__init__.py`).
+cli/ (one module per area, each `register(sub, common) -> {name: fn}`; `AREAS` in `cli/__init__.py`; `style`: colour,
+dots, tables for terminal output — plain when piped or NO_COLOR; `manual`: the help text).
 config/strategies.toml is what `pmx run` runs (engine/config.py validates it, engine/run.py builds it);
 config/recorder.toml is `pmx record`'s.
 tui/ — Rust/ratatui: proto, feed (server state), book, app (UI state + keys), ui (frame),

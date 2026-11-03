@@ -1,7 +1,8 @@
 # Runbook — operations
 
 How to run pmx unattended, stop it, recover after a crash, and rotate keys. Recording game days has its own
-runbook: `docs/runbooks/recording.md`.
+runbook: `docs/runbooks/recording.md`; running on a Linux server and watching it from your laptop:
+`docs/runbooks/linux-vm.md`.
 
 ## Before a game day
 
@@ -14,8 +15,9 @@ pmx check --env prod                      # auth, REST, websocket
 - Plug the Mac in. `pmx run` and `pmx record` hold a no-sleep assertion (`caffeinate`), but on battery the Mac can
   still sleep (closing the lid, low power). Both warn at start when on battery, and every sleep leaves a
   `sleep_gap` in the raw logs (and an alert).
-- Start the recorder (`pmx record --env prod --series KXNFLGAME`), or run the engine with `[engine] record = true`,
-  never both (ESPN would be recorded twice).
+- Start the recorder (`pmx record --env prod`), or run the engine with `[engine] record = true`, never both
+  (every frame would be recorded twice); `pmx run --no-record` runs the engine beside the recorder, and
+  `pmx ops install --record --run` does that for you.
 
 ## Run, watch, stop
 
@@ -69,21 +71,24 @@ running engine over the control socket so it applies at once.
    reconciled (adopted or canceled) before anything trades. Check the log's `reconciled (start): …` line.
 4. If a strategy failed (`slot … failed and stopped` alert), fix it and restart — its slot is dead until then.
 
-## Unattended (launchd)
+## Unattended (launchd on macOS, systemd on Linux)
 
 ```
-pmx ops install --record --run --backup   # writes and loads ~/Library/LaunchAgents/com.pmx.*.plist
-pmx ops uninstall                                    # unloads and removes them
+pmx ops install --record --run --backup   # macOS: ~/Library/LaunchAgents/com.pmx.*.plist · Linux: ~/.config/systemd/user/pmx-*
+pmx ops status                            # each service's state
+pmx ops uninstall                         # stops and removes them
 ```
 
-The `record` and `run` agents start at login and are restarted when they crash (not after a clean `pmx down`,
-which exits 0); `--live` makes the run agent trade live (with `--confirm prod` on prod). The `backup` agent runs
-`pmx ops backup` daily at 04:30. Their own output goes to `data/logs/launchd-<name>.log`; the engine's log is
-`data/logs/run-<date>.log` (rotated at 50 MB, 5 kept).
+The `record` and `run` services start at login (Linux: at boot, with lingering) and are restarted when they crash
+(not after a clean `pmx down`, which exits 0); `--live` makes the run service trade live (with `--confirm prod` on
+prod). The backup runs `pmx ops backup` daily at 04:30. Their own output goes to `data/logs/launchd-<name>.log`
+(macOS) or the journal (`journalctl --user -u pmx-run`); the engine's log is `data/logs/run-<date>.log` (rotated at
+50 MB, 5 kept).
 
 ## Backups
 
-`pmx ops backup --to /Volumes/Backup/pmx` (or `[ops] backup_dir`): raw logs are copied incrementally and
+`pmx ops backup --to /Volumes/Backup/pmx` (or `[ops] backup_dir`, then `[ops] backup_sync` to ship the copy off the
+machine, e.g. `aws s3 sync`): raw logs are copied incrementally and
 verified by hash; each ledger is copied with SQLite's online backup API (consistent while the engine writes),
 checked with `PRAGMA integrity_check`, and kept `[ops] backup_keep_days` (14) days. The git-ignored working folders
 (`research/`, the private research workspace, and `planning/`) are mirrored too: new or changed files are copied,
@@ -92,10 +97,13 @@ rebuilt.
 
 ## Alerts
 
-macOS notifications (and a log line) on: a live fill, any halt, a slot error, a source down > 60 s, a source
+macOS notifications, a webhook when `PMX_ALERT_WEBHOOK` is set in `.env` (ntfy, Slack, Discord; `pmx ops
+alert-test` sends one), and a log line, on: a live fill, any halt, a slot error, a live-broker warning (positions
+that disagree with Kalshi, fills only the hourly reconciliation found, a cancel that keeps failing), a source down > 60 s, a source
 queue overflow, the order scheduler holding writes > 30 s, a slot over its CPU budget, a failing advisor, feed
 drops, low disk (< 5 GB), a sleep, running on battery. The same alert goes out at most every 5 minutes. Tune in
-`[ops]` (`alerts = false` keeps only the log lines).
+`[ops]` (`alerts = false` keeps only the log lines). Set `PMX_UPTIME_URL` in `.env` to a dead-man check
+(healthchecks.io, …): pmx pings it every minute, so you hear when the machine itself is gone.
 
 ## Rotating keys
 

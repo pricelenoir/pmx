@@ -7,18 +7,18 @@ import argparse
 import re
 import sys
 from collections.abc import Callable
-from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
 import msgspec
 
+from pmx.cli import style
 from pmx.cli.common import die, socket_for
 from pmx.control import protocol
 from pmx.control.client import NotRunning, call
 from pmx.control.server import control_socket
-from pmx.core.units import cents, fmt_qty, parse_price, parse_qty
+from pmx.core.units import cents, parse_price, parse_qty
 
 _DURATION = re.compile(r"(\d+(?:\.\d+)?)\s*(s|m|h)?")
 
@@ -52,14 +52,23 @@ def _call(args: argparse.Namespace, req: protocol.Request) -> protocol.Response:
         die(str(e))
 
 
+def _qty(q: int) -> str:
+    return f"{q / 100:,.2f}".rstrip("0").rstrip(".")
+
+
+def _side(side: str) -> str:
+    return "buy" if side == "bid" else "sell"
+
+
 def _fmt_order(o: dict[str, Any]) -> str:
-    reason = f" ({o['reason']})" if o.get("reason") else ""
-    return (f"  {o['status']:<9} {o['client_order_id']}  {o['side']} {fmt_qty(o['qty'])} @ {cents(o['price'])}  "
-            f"filled {fmt_qty(o['filled'])}{reason}")
+    reason = style.dim(f"  ({o['reason']})") if o.get("reason") else ""
+    return (f"  {style.dot(o['status'])} {style.pad(style.word(o['status']), 9)} "
+            f"{_side(o['side'])} {_qty(o['qty'])} @ {cents(o['price'])}  {style.dim('filled')} {_qty(o['filled'])}  "
+            f"{style.dim(o['client_order_id'])}{reason}")
 
 
-def report(resp: protocol.Response) -> str:
-    lines = ["ok" if resp.ok else f"refused: {resp.error}"]
+def report(resp: protocol.Response, done: str = "done") -> str:
+    lines = [f"{style.mark(True)} {done}" if resp.ok else f"{style.mark(False)} {style.red('refused')}: {resp.error}"]
     if resp.ok and resp.error:
         lines.append(resp.error)
     if resp.orders:
@@ -68,10 +77,11 @@ def report(resp: protocol.Response) -> str:
             latest[o["client_order_id"]] = o
         lines += [_fmt_order(o) for o in latest.values()]
     for f in resp.fills:
-        lines.append(f"  fill {f['side']} {fmt_qty(f['qty'])} @ {cents(f['price'])} "
-                     f"({'taker' if f['is_taker'] else 'maker'}, fee ${f['fee'] / 1e6:.4f})")
+        how = f"{'taker' if f['is_taker'] else 'maker'}, fee ${f['fee'] / 1e6:.4f}"
+        lines.append(f"  {style.green('▸ filled')} {_side(f['side'])} {_qty(f['qty'])} @ {cents(f['price'])}  "
+                     f"{style.dim(how)}")
     for r in resp.rejects:
-        lines.append(f"  reject {r['rule']}: {r['detail']}")
+        lines.append(f"  {style.red('✗ rejected')} {r['rule']}: {r['detail']}")
     return "\n".join(lines)
 
 
@@ -95,7 +105,7 @@ def cmd_order(args: argparse.Namespace) -> None:
             die("order not sent")
         req = msgspec.structs.replace(req, confirmed=True)
     resp = _call(args, req)
-    print(report(resp))
+    print(report(resp, "order sent"))
     if not resp.ok:
         sys.exit(1)
 
@@ -104,20 +114,29 @@ def cmd_cancel(args: argparse.Namespace) -> None:
     if not (args.order_id or args.ticker or args.all):
         die("say what to cancel: an order ID, --ticker TICKER, or --all (manual orders)")
     resp = _call(args, protocol.Cancel(args.order_id or "", args.ticker or "", args.all, args.mode))
-    print(report(resp))
     if resp.ok and not resp.orders:
-        print("  nothing working to cancel")
+        print(style.dim("nothing working to cancel"))
+        return
+    n = len({o["client_order_id"] for o in resp.orders})
+    print(report(resp, f"canceled {n} order{'s' * (n != 1)}"))
 
 
 def _usd(m: int, sign: bool = True) -> str:
-    return f"{'+' if sign and m > 0 else '-' if m < 0 else ''}${abs(m) / 1e6:,.2f}"
+    return style.usd(m, sign=sign)
+
+
+def _ago(ms: float) -> str:
+    s = max(0, ms / 1000)
+    return f"{s:.0f}s" if s < 90 else f"{s / 60:.0f}m" if s < 5400 else f"{s / 3600:.1f}h" if s < 172_800 else \
+        f"{s / 86_400:.0f}d"
 
 
 def cmd_status(args: argparse.Namespace) -> None:
     try:
         d = call(_sock(args), protocol.Status(), timeout=5.0).data
-    except (NotRunning, TimeoutError) as e:
-        print(f"the engine is not responding ({e})")
+    except (NotRunning, TimeoutError):
+        hint = style.dim("start it: pmx up --env …")
+        print(f"{style.dot('idle')} {style.yellow("the engine isn't running")}  {hint}")
         _status_from_files(args)
         return
     print(_status_text(d))
@@ -136,45 +155,62 @@ def _status_from_files(args: argparse.Namespace, *, engine: bool = True) -> None
         h = read(path)
         if h is None:
             continue
-        age = time.time() - h["ts_ms"] / 1000
-        print(f"\n{path.name}, {age:.0f} s old" + (" (stale: the process may have stopped)" if age > 60 else ""))
+        age = time.time() * 1000 - h["ts_ms"]
+        stale = age > 60_000
+        what = "the engine" if h.get("kind") == "run" else "the recorder"
+        print("\n" + style.heading(f"{what}, last report {_ago(age)} ago", path.name) +
+              (f"  {style.yellow('stale: it may have stopped')}" if stale else ""))
         if h.get("kind") == "run":
             print(_status_text(h))
         else:
-            for name, s in h.get("sources", {}).items():
-                last = f"{(time.time() * 1000 - s['last_ms']) / 1000:.0f} s ago" if s.get("last_ms") else "never"
-                print(f"  {name:<14} {s['records']:>10,} records, last {last}")
-            print(f"  sleep gaps {h.get('sleep_gaps', 0)}, disk free {h.get('disk_free_gb', '?')} GB")
+            rows = [[f"{style.dot('down' if stale else 'up')} {name}", f"{s['records']:,} records",
+                     style.dim(f"last {_ago(time.time() * 1000 - s['last_ms'])} ago" if s.get("last_ms") else "never")]
+                    for name, s in h.get("sources", {}).items()]
+            print("\n".join(style.table(rows, right={1}, header=False)))
+            print(style.dim(f"  sleep gaps {h.get('sleep_gaps', 0)} · disk free {h.get('disk_free_gb', '?')} GB"))
 
 
 def _status_text(d: dict[str, Any]) -> str:
-    started = datetime.fromtimestamp(d["started_ms"] / 1000).strftime("%Y-%m-%d %H:%M:%S")
-    lines = [f"pmx {d['env']}{' LIVE' if d['live'] else ''} — run {d['run_id']}, since {started}; "
-             f"{d['dispatched']:,} events dispatched, {d['queue_depth']} queued", "", "sources"]
-    lines += [f"  {'up  ' if s['connected'] else '?   ' if s['connected'] is None else 'DOWN'} {name:<12} {s['detail']}"
-              for name, s in d["sources"].items()]
-    lines += ["", "slots    " + (" · ".join(f"{k} {v}" for k, v in sorted(d["slots"].items())) or "none"),
-              "orders   " + (" · ".join(f"{k} {v} working" for k, v in sorted(d["working_orders"].items())) or "none"),
-              "halts    " + (" · ".join(f"{k or 'everything'}: {v}" for k, v in d["halts"].items()) or "none"),
-              "pnl      " + " · ".join(f"{m} equity {_usd(p['equity'])} (today {_usd(p['today'])})"
-                                       for m, p in d["pnl"].items())]
+    import time
+
+    up = _ago(time.time() * 1000 - d["started_ms"])
+    mode = style.red(style.bold("LIVE")) if d["live"] else style.dim("paper only")
+    lines = [f"{style.dot('running')} {style.bold('pmx')} {style.cyan(d['env'])} {mode}   "
+             + style.dim(f"run {d['run_id']} · up {up} · {d['dispatched']:,} events"
+                         + (f" · {d['queue_depth']} queued" if d["queue_depth"] else "")), "", style.bold("sources")]
+    rows = [[f"{style.dot({True: 'up', False: 'down'}.get(s['connected'], 'unknown'))} {name}",
+             s["detail"] if s["connected"] is not False else style.red(s["detail"] or "down")]
+            for name, s in d["sources"].items()]
+    lines += style.table(rows, header=False)
+    slots = " · ".join(f"{v} {k}" for k, v in sorted(d["slots"].items()))
+    orders = " · ".join(f"{v} {k} working" for k, v in sorted(d["working_orders"].items()))
+    halts = " · ".join(style.yellow(f"⏸ {k or 'everything'}: {v}") for k, v in d["halts"].items())
+    pnl = "   ".join(f"{m} {_usd(p['equity'])} {style.dim('today')} {_usd(p['today'])}" for m, p in d["pnl"].items())
+    lines += ["",
+              f"{style.bold('slots ')}   {slots or style.dim('none')}",
+              f"{style.bold('orders')}   {orders or style.dim('none working')}",
+              f"{style.bold('halts ')}   {halts or style.dim('none')}",
+              f"{style.bold('pnl   ')}   {pnl}"]
     if d["manual_orders"]:
-        lines += ["", "manual orders"] + [f"  {o['mode']:<5} {o['status']:<8} {o['client_order_id']}  {o['slot']}  "
-                                          f"{o['side']} {fmt_qty(o['qty'])} @ {cents(o['price'])}  filled "
-                                          f"{fmt_qty(o['filled'])}" for o in d["manual_orders"]]
+        lines += ["", style.bold("manual orders")] + [
+            f"  {style.dot(o['status'])} {o['mode']:<5} {_side(o['side'])} {_qty(o['qty'])} @ {cents(o['price'])}  "
+            f"{style.dim('filled')} {_qty(o['filled'])}  {style.dim(o['slot'])}" for o in d["manual_orders"]]
     return "\n".join(lines)
 
 
 def cmd_positions(args: argparse.Namespace) -> None:
     rows = _call(args, protocol.Positions(args.mode)).data["positions"]
     if not rows:
-        print("no open positions")
+        print(style.dim("no open positions"))
         return
-    print(f"{'mode':<6} {'slot':<46} {'qty':>8} {'avg':>7} {'realized':>10} {'fees':>8}")
+    table = [["mode", "strategy / market", "qty", "avg", "realized", "fees"]]
     for r in rows:
         avg = r["cost"] / r["qty"] / 100 if r["qty"] else 0  # micros per 1e-2 contract → ¢
-        print(f"{r['mode']:<6} {r['slot'][:46]:<46} {fmt_qty(r['qty']):>8} {avg:>6.2f}¢ {_usd(r['realized']):>10} "
-              f"{_usd(r['fees'], False):>8}")
+        qty = _qty(r["qty"])
+        table.append([style.red(r["mode"]) if r["mode"] == "live" else r["mode"], r["slot"],
+                      style.green(qty) if r["qty"] > 0 else style.red(qty), f"{avg:.2f}¢", _usd(r["realized"]),
+                      style.dim(_usd(r["fees"], False))])
+    print("\n".join(style.table(table, right={2, 3, 4, 5}, indent=0)))
 
 
 def cmd_advise(args: argparse.Namespace) -> None:

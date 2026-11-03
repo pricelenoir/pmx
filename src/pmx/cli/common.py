@@ -21,7 +21,9 @@ from pmx.core.units import cents, fmt_qty
 
 def die(message: str) -> NoReturn:
     """Exit with status 1 and `error: <message>` on stderr (what went wrong; how to fix it after a semicolon)."""
-    sys.exit(f"error: {message}")
+    from pmx.cli.style import err
+
+    sys.exit(f"{err('error:')} {message}")
 
 
 def common_parser() -> argparse.ArgumentParser:
@@ -44,11 +46,22 @@ def engine_flags() -> argparse.ArgumentParser:
     return p
 
 
+SOCKET_PATH_MAX = 100  # Unix socket paths: 104 bytes on macOS, 108 on Linux; the -ctl variant is a little longer
+
+
 def socket_for(args: argparse.Namespace) -> Path:
     if getattr(args, "socket", None):
         return Path(args.socket)
     # The demo gets its own socket so it can never be mistaken for a real feed.
     return config.data_root() / "pmx-demo.sock" if getattr(args, "demo", False) else config.socket_path()
+
+
+def bindable(sock: Path) -> Path:
+    """The socket an engine is about to listen on, or a clear error when the OS couldn't bind it."""
+    if len(str(sock)) > SOCKET_PATH_MAX:
+        die(f"the socket path is too long for a Unix socket ({len(str(sock))} > {SOCKET_PATH_MAX} characters: {sock}); "
+            "set PMX_SOCK to a shorter path, e.g. PMX_SOCK=/tmp/pmx.sock")
+    return sock
 
 
 @contextlib.contextmanager

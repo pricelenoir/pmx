@@ -143,6 +143,12 @@ def test_reads_retry_429_and_5xx_but_writes_only_429(monkeypatch):
     assert body["side"] == "bid" and body["price"] == "0.5600" and body["count"] == "10.00"
     assert body["time_in_force"] == "good_till_canceled" and body["client_order_id"] == req.client_order_id
     assert posts[0].url.path == "/trade-api/v2/portfolio/events/orders"
+    assert "expiration_time" not in body
+    posts.clear()
+    with pytest.raises(KalshiError):  # an expiring order: whole seconds, rounded up
+        asyncio.run(_rest(broken, signer).create_order(OrderRequest("kalshi", "T", "bid", 5600, 1000,
+                                                                    expires_ms=1_793_671_277_001)))
+    assert json.loads(posts[0].content)["expiration_time"] == 1_793_671_278
 
 
 def test_portfolio_requires_key():
@@ -255,3 +261,24 @@ def test_stream_remove_uses_tracked_sids():
     assert ws.sent[0]["params"] == {"sids": [1], "market_tickers": ["A"], "action": "delete_markets"}
     assert ws.sent[1] == {"id": 2, "cmd": "unsubscribe", "params": {"sids": [2]}}
     assert stream.tickers == {"B"} and stream._sid_tickers == {1: {"B"}}
+
+
+
+def test_an_order_canceled_at_its_expiration_time_reads_as_expired():
+    # As seen on Kalshi demo (2026-11-03): REST shows an expired order as `canceled` at its expiration time with no
+    # reason; the websocket's `user_order` says `ExpiryCancel`.
+    base = {"order_id": "o1", "ticker": "T", "yes_price_dollars": "0.0100", "fill_count_fp": "0.00",
+            "remaining_count_fp": "0.00", "initial_count_fp": "1.00", "client_order_id": "pmx-x", "book_side": "bid",
+            "expiration_time": "2026-11-03T02:01:17Z"}
+
+    def read(**kw) -> str:
+        return wire.to_order(msgspec.convert(base | kw, wire.WireOrder)).reason
+
+    assert read(status="canceled", last_update_time="2026-11-03T02:01:17.037625Z") == wire.EXPIRED
+    assert read(status="canceled", last_update_time="2026-11-03T02:00:59Z") == ""  # canceled before: not an expiry
+    assert read(status="canceled", last_update_time="2026-11-03T02:01:17Z", last_update_reason="HaltCancel") == \
+        "HaltCancel"
+    assert read(status="resting", last_update_time="2026-11-03T02:01:18Z") == ""
+    assert read(status="canceled", last_update_time="2026-11-03T02:01:17Z", last_update_reason="ExpiryCancel") == \
+        wire.EXPIRED  # what the websocket says
+    assert read(status="canceled", last_update_time="2026-11-03T02:01:18Z", expiration_time=None) == ""

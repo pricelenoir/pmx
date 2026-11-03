@@ -11,6 +11,7 @@ import msgspec
 from pmx.core.fees import KALSHI_DEFAULT_FEES, FeeSchedule
 from pmx.core.types import (
     CENT_GRID,
+    EXPIRED,
     BookDelta,
     BookSide,
     BookSnapshot,
@@ -194,6 +195,7 @@ class WireOrder(msgspec.Struct):
     created_time: str | None = None
     last_updated_ts_ms: int | None = None
     last_update_reason: str = ""  # e.g. SelfTradeCancel, HaltCancel, CloseCancel (websocket only)
+    expiration_time: str | None = None  # set on orders placed to expire
 
 
 class WireQueuePosition(msgspec.Struct):
@@ -300,10 +302,16 @@ def to_trade(t: WireTrade) -> Trade:
 
 def to_order(o: WireOrder, fallback_ms: int = 0) -> VenueOrder:
     ts = o.last_updated_ts_ms or _ts_ms(o.last_update_time) or _ts_ms(o.created_time) or fallback_ms
+    reason = o.last_update_reason
+    exp = _ts_ms(o.expiration_time)
+    # An expiry, as seen on demo: the websocket says `ExpiryCancel`; REST gives no reason, only `canceled` at the
+    # order's expiration time.
+    if o.status == "canceled" and (reason == "ExpiryCancel" or (exp is not None and ts >= exp and not reason)):
+        reason = EXPIRED
     return VenueOrder(VENUE, o.order_id, o.client_order_id, o.ticker,
                       _side(o.book_side, o.side or "yes", o.action or "buy"), parse_price(o.yes_price_dollars),
                       parse_qty(o.initial_count_fp), parse_qty(o.fill_count_fp), parse_qty(o.remaining_count_fp),
-                      o.status, ts, o.last_update_reason)
+                      o.status, ts, reason)
 
 
 def to_position(p: WireMarketPosition) -> VenuePosition:

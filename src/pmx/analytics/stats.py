@@ -91,9 +91,12 @@ def _in(ts: int, start: int | None, end: int | None) -> bool:
 
 
 def load(ledger: Any, *, mode: str, strategy: str | None = None, slot: str | None = None,
-         start_ms: int | None = None, end_ms: int | None = None) -> Data:
+         start_ms: int | None = None, end_ms: int | None = None, params_hash: str | None = None) -> Data:
     db, env = ledger.db, ledger.env
     where, args = "f.env=? AND f.mode=?", [env, mode]
+    if params_hash is not None:
+        where += " AND f.params_hash=?"
+        args.append(params_hash)
     if slot is not None:
         where += " AND o.strategy=?"
         args.append(slot)

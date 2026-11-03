@@ -12,7 +12,8 @@ from datetime import date
 from pathlib import Path
 
 from pmx import config, lifecycle
-from pmx.cli.common import die, engine_flags, engine_pidfile, on_signal, socket_for
+from pmx.cli import style
+from pmx.cli.common import bindable, die, engine_flags, engine_pidfile, on_signal, socket_for
 
 
 @contextlib.asynccontextmanager
@@ -61,7 +62,7 @@ async def cmd_serve(args: argparse.Namespace) -> None:
         return
     stop = asyncio.Event()
     on_signal(stop.set)
-    sock = socket_for(args)
+    sock = bindable(socket_for(args))
     if args.demo:
         await _serve_demo(args, sock, stop)
         return
@@ -87,9 +88,9 @@ def serve_argv(args: argparse.Namespace) -> list[str]:
     """`pmx serve` / `pmx run` flags that reproduce this command's engine (for `up` and `tui`)."""
     out = ["--env", args.env] if args.env else []
     for flag in ("source", "config", "poll", "replay", "speed", "socket", "models", "markets", "rate", "slots",
-                 "confirm"):
+                 "confirm", "skip_paper_check"):
         if getattr(args, flag, None) is not None:
-            out += [f"--{flag}", str(getattr(args, flag))]
+            out += [f"--{flag.replace('_', '-')}", str(getattr(args, flag))]
     for flag in ("series", "tickers"):
         if getattr(args, flag, None):
             out += [f"--{flag}", *getattr(args, flag)]
@@ -141,14 +142,16 @@ def _where(sock: Path) -> str:
 def cmd_up(args: argparse.Namespace) -> None:
     sock = socket_for(args)
     if _running(sock):
-        print(f"pmx is already running ({_where(sock)})")
+        print(f"{style.dot('running')} pmx is already running  {style.dim(_where(sock))}")
         return
     cmd = _command(args)
     pid = _start(args, sock, cmd)
     log = config.data_root() / "logs" / f"run-{date.today()}.log" if cmd == "run" else _log(cmd)
     what = "the engine" if cmd == "run" else "the market-data feed" if not args.demo else "the demo"
-    print(f"pmx is running in the background: {what} (pid {pid}, {sock})")
-    print(f"  watch: pmx tui{_flags(args)}   stop: pmx down{_flags(args)}   log: {log}")
+    print(f"{style.dot('running')} {style.bold('pmx is running')} {what}  {style.dim(f'pid {pid} · {sock}')}")
+    print(f"  watch {style.cyan('pmx tui' + _flags(args))} · status {style.cyan('pmx status')} · "
+          f"stop {style.cyan('pmx down' + _flags(args))}")
+    print(style.dim(f"  log {log}"))
 
 
 def cmd_down(args: argparse.Namespace) -> None:
@@ -157,12 +160,12 @@ def cmd_down(args: argparse.Namespace) -> None:
     if pid is None:
         if _running(sock):
             die(f"another process is serving {sock} without a pidfile; stop it where it was started")
-        print("pmx isn't running")
+        print(style.dim("pmx isn't running"))
         return
-    print(f"stopping pmx (pid {pid})…")
+    print(style.dim(f"stopping pmx (pid {pid}): halt, cancel working orders, save…"))
     if not lifecycle.stop(pid):
         die(f"process {pid} did not exit")
-    print("stopped")
+    print(f"{style.dot('idle')} stopped")
     from pmx.ops.guard import guard_pidfile, heartbeat_path
 
     guard = lifecycle.read_pid(guard_pidfile(sock))
@@ -186,11 +189,12 @@ def cmd_tui(args: argparse.Namespace) -> None:
     if args.build or _tui_stale(binary):
         subprocess.run(["cargo", "build", "--release", "--manifest-path", str(TUI_DIR / "Cargo.toml")], check=True)
     if not _running(sock):
-        print("pmx isn't running — starting it in the background…")
+        print(style.dim("pmx isn't running: starting the market-data feed in the background…"))
         _start(args, sock)
     code = subprocess.call([str(binary), "--socket", str(sock)])
     if _running(sock):
-        print(f"pmx is still running ({_where(sock)}) — reattach: pmx tui{_flags(args)} · stop: pmx down{_flags(args)}")
+        print(f"{style.dot('running')} pmx is still running  {style.dim(_where(sock))} · reattach "
+              f"{style.cyan('pmx tui' + _flags(args))} · stop {style.cyan('pmx down' + _flags(args))}")
     sys.exit(code)
 
 
@@ -210,6 +214,7 @@ def register(sub: argparse._SubParsersAction, common: argparse.ArgumentParser) -
     up.add_argument("--feed-only", action="store_true", help="the market-data feed (pmx serve), no strategies")
     up.add_argument("--live", action="store_true", help="pmx run --live")
     up.add_argument("--confirm", metavar="ENV", help="pmx run --confirm: live on prod, headless")
+    up.add_argument("--skip-paper-check", metavar="REASON", help="pmx run --skip-paper-check: past the promotion gate")
     sub.add_parser("down", parents=[common, target], help="stop what pmx up started")
     t = sub.add_parser("tui", parents=[common, feed, target],
                        help="attach the Rust dashboard (starts pmx serve if nothing runs; q detaches)")

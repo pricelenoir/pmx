@@ -205,7 +205,9 @@ class KalshiMarketData:
                     sink.record(RAW, "f", item.text)
                 else:
                     sink.record(RAW, "c", _enc.encode({"event": item.event, **item.detail}).decode())
-                    detail = f"websocket {item.event}" + (f": {item.detail}" if item.detail else "")
+                    detail = f"websocket {item.event}" + (
+                        f" · {item.detail['tickers']:,} markets" if "tickers" in item.detail else
+                        "".join(f" · {k} {v}" for k, v in item.detail.items()))
                     health(item.event == "connected", detail)
                 try:
                     events = decode(item)

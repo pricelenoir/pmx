@@ -16,6 +16,7 @@ from pmx.connectors.kalshi.decode import KalshiDecoder
 from pmx.connectors.kalshi.rest import KalshiError
 from pmx.core.fees import KALSHI_DEFAULT_FEES
 from pmx.core.types import (
+    EXPIRED,
     BookSnapshot,
     Contract,
     Fill,
@@ -31,7 +32,7 @@ from pmx.engine.engine import Engine
 from pmx.engine.events import AccountSnapshot, LogEvent, OrderUpdate, RiskReject, SlotFill, Timer
 from pmx.engine.state import State
 from pmx.execution.broker import Brokers
-from pmx.execution.live import LiveBroker
+from pmx.execution.live import EXPIRY_GRACE_MS, PERIODIC, LiveBroker
 from pmx.execution.orders import OrderManager
 from pmx.execution.paper import PaperBroker
 from pmx.ledger.db import Ledger
@@ -109,6 +110,7 @@ class FakeVenue:
         return next(v for v in self.known.values() if v.order_id == order_id)
 
     async def fills(self, since_ms: int | None = None) -> list[Fill]:
+        self.calls.append(("fills", since_ms))
         return list(self.fills_made)
 
     async def queue_positions(self, tickers: list[str]) -> dict[str, int]:
@@ -697,3 +699,80 @@ def test_manual_live_orders_need_live_and_confirmation_and_go_to_the_venue(tmp_p
 
     asyncio.run(go())
     assert [v.status for v in venue.known.values()] == ["canceled"], "shutdown canceled it at the venue"
+
+
+def test_the_hourly_pass_says_when_it_found_fills_the_account_stream_missed():
+    async def go() -> Rig:
+        r = Rig()
+        await r.act(bid())
+        a = r.om.working(A, T)[0].client_order_id
+        r.venue.fill(a, 100, with_coid=False)  # never arrived over the websocket
+        await r.live.reconcile(PERIODIC)
+        await r.settle()
+        assert r.om.position(A, T, "live") == 100
+        warns = [e.text for e in r.seen.of(LogEvent) if e.level == "warn" and e.source == "live"]
+        assert any("only through reconciliation" in w for w in warns)
+        await r.live.reconcile("reconnect")  # after a disconnect, catching up is expected: no warning
+        await r.settle()
+        assert sum("only through reconciliation" in e.text for e in r.seen.of(LogEvent)) == 1
+        return r
+
+    run(go())
+
+
+def test_reconciliation_also_runs_on_a_timer_while_trading(monkeypatch):
+    async def go() -> list[str]:
+        r = Rig()
+        calls = []
+        r.live.reconcile_soon = lambda why="": calls.append(why)
+        r.live.queue_s, r.live.reconcile_s = 0.01, 0.0
+        stop = asyncio.Event()
+        task = asyncio.create_task(r.live.run(stop))
+        await asyncio.sleep(0.05)
+        stop.set()
+        await task
+        return calls
+
+    calls = run(go())
+    assert calls and set(calls) == {PERIODIC}
+
+
+def test_an_order_the_venue_expired_is_found_and_renewed_without_the_account_stream():
+    async def go() -> Rig:
+        r = Rig()
+        r.om.live_order_ttl_ms = 60_000
+        await r.act(bid())
+        (w,) = r.om.working(A, T)
+        first = r.om.orders[w.client_order_id]
+        assert first.req.expires_ms == r.clock.now_ms() + 60_000
+        coid = first.req.client_order_id
+        assert r.live.check_expired() == 0  # not expired yet
+        r.clock.advance(r.clock.now_ms() + 60_000 + EXPIRY_GRACE_MS)
+        v = r.venue.known[coid]  # the venue expired it; the account stream said nothing
+        r.venue.known[coid] = msgspec.structs.replace(v, status="canceled", remaining=0, reason=EXPIRED)
+        assert r.live.check_expired() == 1 and r.live.check_expired() == 0  # asked once
+        await r.settle()
+        assert r.updates(coid)[-1] == "canceled"
+        (w,) = r.om.working(A, T)
+        renewed = r.om.orders[w.client_order_id]
+        assert renewed.req.client_order_id != coid and renewed.req.price == first.req.price
+        assert renewed.req.qty == first.req.qty and renewed.req.expires_ms == r.clock.now_ms() + 60_000
+        return r
+
+    run(go())
+
+
+
+def test_catching_up_on_fills_starts_where_this_data_dir_has_something_to_catch_up_on(tmp_path):
+    async def go() -> None:
+        r = Rig()  # a fresh ledger, nothing open: the account's older fills belong to other data dirs
+        await r.live.reconcile("start")
+        assert ("fills", r.clock.now_ms() - 60_000) in r.venue.calls
+        await r.act(bid())  # an order working since now: catch up from it
+        placed = r.clock.now_ms()
+        r.clock.advance(placed + 3_600_000)
+        r.venue.calls.clear()
+        await r.live.reconcile("reconnect")
+        assert ("fills", placed - 60_000) in r.venue.calls
+
+    run(go())

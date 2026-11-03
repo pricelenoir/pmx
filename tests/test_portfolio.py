@@ -300,7 +300,10 @@ def test_pmx_risk_prints_scopes_exposures_and_breached_limits():
                            portfolio=b.t)
     (snap,) = b.send(Timer(b.now))
     text = report(proto.Hello("kalshi", "prod", "live"), proto.PortfolioMsg.of(snap), "paper")
-    assert "pmx risk — prod paper" in text
+    assert "pmx risk · prod paper" in text
     assert "portfolio" in text and "+$0.60" in text and "$8.23" in text and "-$2.63" in text
-    assert f"{G2:<40}" in text and "BUF +$5.45 · MIA -$2.55 · tie +$1.45" in text
+    assert G2 in text and "BUF +$5.45 · MIA -$2.55 · tie +$1.45" in text
     assert "max_worst_case" in text and "$2.63 / $2.00" in text and "BREACHED" in text
+    shown = {line.split()[0] for line in text.splitlines() if line.startswith("  a/") or line.startswith("  b/")}
+    every = report(proto.Hello("kalshi", "prod", "live"), proto.PortfolioMsg.of(snap), "paper", every=True)
+    assert shown and len(every.splitlines()) >= len(text.splitlines())  # --all: flat markets too

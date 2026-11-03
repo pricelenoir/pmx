@@ -157,7 +157,7 @@ def test_pmx_perf_and_export(led, tmp_path, capsys):
     path = led.db.execute("PRAGMA database_list").fetchone()[2]
     main(["perf", "--ledger", path, "--env", ENV, "--strategy", "win3"])
     out = capsys.readouterr().out
-    assert "INCONCLUSIVE: +60.00¢/contract" in out and "max drawdown $4.00" in out
+    assert "INCONCLUSIVE  +60.00¢/contract" in out and "max drawdown $4.00" in out
     main(["perf", "--ledger", path, "--env", ENV, "--slot", "loser/SER-LOSE0-A", "--json"])
     j = json.loads(capsys.readouterr().out)
     assert j["stats"]["net"] == -70_000 and j["verdict"]["verdict"] == "inconclusive"

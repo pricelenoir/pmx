@@ -1,5 +1,6 @@
 """`pmx doctor`: is this machine set up to run pmx reproducibly? The venv matches `uv.lock`, the TUI
-builds, keys are where `.env` says and private, the clock is synced, the data disk has room."""
+builds, keys are where `.env` says and private, the clock is synced, the data disk has room; on Linux, user services
+start at boot (lingering); and where alerts go."""
 
 from __future__ import annotations
 
@@ -8,6 +9,7 @@ import re
 import shutil
 import stat
 import subprocess
+import sys
 from pathlib import Path
 
 from pmx import config
@@ -38,6 +40,8 @@ def venv_matches_lock() -> Check:
 
 def tui_builds() -> Check:
     if shutil.which("cargo") is None:
+        if sys.platform.startswith("linux"):  # a server: the dashboard runs on your own machine
+            return "TUI toolchain", None, "no cargo: watch from another machine with `pmx remote HOST tui`"
         return "TUI toolchain", False, "cargo isn't installed (rustup)"
     binary = config.PROJECT / "tui" / "target" / "release" / "pmx-tui"
     if not binary.exists():
@@ -65,6 +69,10 @@ def keys() -> list[Check]:
 
 def clock(max_ms: float = 250.0) -> Check:
     if shutil.which("sntp") is None:
+        if shutil.which("timedatectl") is not None:  # Linux: systemd's view of NTP sync
+            r = _run(["timedatectl", "show", "-p", "NTPSynchronized", "--value"], timeout=10)
+            synced = r is not None and r.stdout.strip() == "yes"
+            return "clock", synced, "NTP synchronized" if synced else "not NTP-synchronized (timedatectl; chrony)"
         return "clock", None, "sntp isn't available"
     r = _run(["sntp", "-t", "3", "time.apple.com"], timeout=15)
     m = re.search(r"([+-]\d+\.\d+)\s+\+/-", (r.stdout + r.stderr) if r else "")
@@ -84,5 +92,32 @@ def disk(min_gb: float = 5.0) -> Check:
                                                                                          ", NOT writable")
 
 
+def services() -> list[Check]:
+    """Linux: user services survive logout and start at boot only with lingering on."""
+    if not sys.platform.startswith("linux") or shutil.which("systemctl") is None:
+        return []
+    from pmx.ops import systemd
+
+    linger = systemd.lingering()
+    names = systemd.installed()
+    states = systemd.states(names) if names else {}
+    detail = ", ".join(f"{n} {st}" for n, st in states.items()) or "none installed (pmx ops install)"
+    out: list[Check] = [("services", all(v == "active" for v in states.values()) if states else None, detail)]
+    out.append(("lingering", linger, {True: "on: services start at boot", False: "off: sudo loginctl enable-linger "
+                                      "$USER", None: "unknown (loginctl)"}[linger]))
+    return out
+
+
+def alerts() -> list[Check]:
+    from pmx.ops.notify import channels, uptime_target
+
+    where = channels()
+    beat = uptime_target()
+    return [("alerts", len(where) > 1 or None, ", ".join(where) + ("" if len(where) > 1 else
+                                                                   " only: set PMX_ALERT_WEBHOOK in .env")),
+            ("uptime ping", True if beat else None, f"pinging {beat} every minute while pmx runs" if beat else
+             "none: set PMX_UPTIME_URL in .env to hear when the machine itself goes down")]
+
+
 def checks() -> list[Check]:
-    return [venv_matches_lock(), tui_builds(), *keys(), clock(), disk()]
+    return [venv_matches_lock(), tui_builds(), *keys(), clock(), disk(), *services(), *alerts()]

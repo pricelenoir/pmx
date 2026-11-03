@@ -11,12 +11,13 @@ derived from it can be rebuilt.
 
 ## Setup
 
-Requires [uv](https://docs.astral.sh/uv/) and, for the dashboard, Rust. macOS and Linux (`pmx ops install` is macOS).
+Requires [uv](https://docs.astral.sh/uv/) and, for the dashboard, Rust. macOS and Linux; for a server, see
+[`runbooks/linux-vm.md`](docs/runbooks/linux-vm.md) (`scripts/setup-linux.sh`, systemd services, `pmx remote`).
 
 ```sh
 uv sync --python 3.13
 ln -s "$PWD/.venv/bin/pmx" ~/.local/bin/pmx       # `pmx` from anywhere
-pmx help                                          # every command; pmx help CMD · pmx help --all
+pmx help                                          # the manual: where to start, guides (pmx help live), commands
 pmx doctor                                        # venv, TUI build, keys, clock, disk
 ```
 
@@ -40,6 +41,8 @@ pmx tui --env prod                       # Markets · Portfolio · Strategies ·
 pmx status · positions · risk · perf --strategy ID
 pmx order buy TICKER 5 @ 0.40            # manual orders, same risk checks and ledger (--mode live, --ioc)
 pmx halt [ID | ID/TICKER] · resume · cancel --all
+pmx ops install --record --run --backup  # run unattended (launchd or systemd) · pmx ops status
+pmx remote vm tui · status · logs        # watch and control pmx on a server over SSH
 
 pmx backtest --from DAY [--to DAY]       # recorded days (or instants) through the same engine
 pmx backtest --nfl-history --seasons 2025,2026

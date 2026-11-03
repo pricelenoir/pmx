@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from pmx.core.types import BookSnapshot, Contract, Fill, Trade
+from pmx.core.types import EXPIRED, BookSnapshot, Contract, Fill, Trade
 from pmx.engine.clock import SimClock
 from pmx.engine.engine import Engine
 from pmx.engine.events import LogEvent, OrderUpdate, RiskReject, SlotFill, Timer
@@ -410,3 +410,83 @@ def test_the_router_scripted_smoke_strategy_and_paper_trading_end_to_end():
     p = ledger.positions("paper", by="slot", include_flat=True)[(sid, "kalshi", T)]
     assert (p.qty, p.cash, p.fees) == (0, -50_000, 17_437 + 17_052)  # bought at 47¢, sold at 42¢, two taker fees
     assert router.slots[sid].ctx.position == 0 and seen.of(RiskReject) == []
+
+
+# ---- live order expiry ----------------------------------------------------------------------------------------------
+
+class FakeLive:
+    """A live broker that acks every place and records what was sent."""
+
+    mode = "live"
+
+    def __init__(self) -> None:
+        self.placed: list = []
+        self.canceled: list[str] = []
+
+    def place_now(self, req, slot, state, now_ms):
+        self.placed.append(req)
+        return [OrderUpdate(slot, "live", req.client_order_id, f"v{len(self.placed)}", req.ticker, req.side, req.price,
+                            req.qty, 0, "open", now_ms)]
+
+    def cancel_now(self, coid, now_ms):
+        self.canceled.append(coid)
+        return []
+
+    def queue_ahead(self, coid):
+        return None
+
+    def on_event(self, ev, state, now_ms):
+        return []
+
+
+def _live_rig(ttl_ms: int) -> tuple[Rig, FakeLive]:
+    rig = Rig(slots=(A,))
+    rig.slots[A].mode = "live"
+    live = FakeLive()
+    rig.om.brokers["live"] = live
+    rig.om.live_order_ttl_ms = ttl_ms
+    return rig, live
+
+
+def _expire(rig: Rig, req, filled: int = 0, reason: str = EXPIRED) -> None:
+    rig.send(OrderUpdate(A, "live", req.client_order_id, "v", req.ticker, req.side, req.price, req.qty, filled,
+                         "canceled", rig.clock.now_ms(), reason))
+
+
+def test_live_quotes_expire_at_the_venue_and_are_renewed_where_they_were():
+    rig, live = _live_rig(600_000)
+    rig.act(Quote(A, T, bid=(4_000, 500), ask=None))
+    (first,) = live.placed
+    assert first.expires_ms == rig.clock.now_ms() + 600_000 and first.post_only
+    _expire(rig, first, filled=200, reason=EXPIRED)  # partly filled, then the venue expired the rest
+    second = live.placed[-1]
+    assert len(live.placed) == 2 and second.client_order_id != first.client_order_id
+    assert (second.side, second.price, second.qty, second.post_only) == ("bid", 4_000, 300, True)
+    assert second.expires_ms == rig.clock.now_ms() + 600_000
+    rig.act(Quote(A, T, bid=(4_000, 300), ask=None))  # the strategy asks for what's resting: nothing new
+    assert len(live.placed) == 2
+
+
+def test_only_venue_expiries_of_resting_live_orders_are_renewed():
+    rig, live = _live_rig(600_000)
+    rig.act(Quote(A, T, bid=(4_000, 500), ask=None))
+    _expire(rig, live.placed[0], reason="")  # canceled for another reason (a pause, someone on the website)
+    assert len(live.placed) == 1
+    rig.act(Quote(A, T, bid=(4_000, 500), ask=None))  # the strategy still wants it: it places it itself
+    second = live.placed[1]
+    rig.act(Quote(A, T, bid=(4_100, 500), ask=None))  # requote: we cancel `second`…
+    assert second.client_order_id in live.canceled
+    _expire(rig, second)  # …and the venue happens to expire it first: not renewed, the requote stands
+    assert [r.price for r in live.placed] == [4_000, 4_000, 4_100]
+    rig.act(Take(A, T, "bid", 4_200, 100))
+    assert live.placed[-1].tif == "ioc" and live.placed[-1].expires_ms is None  # takes never rest
+
+
+def test_paper_orders_and_ttl_zero_never_expire():
+    rig = Rig(slots=(A,))
+    rig.om.live_order_ttl_ms = 600_000
+    rig.act(Quote(A, T, bid=(4_000, 500), ask=None))
+    assert all(o.req.expires_ms is None for o in rig.om.orders.values())
+    rig, live = _live_rig(0)
+    rig.act(Quote(A, T, bid=(4_000, 500), ask=None))
+    assert live.placed[0].expires_ms is None

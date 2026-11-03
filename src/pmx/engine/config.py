@@ -75,16 +75,20 @@ class ManualSection(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
 class OpsSection(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
     """Unattended running: alerts, health, the live watchdog, staying awake, backups."""
 
-    alerts: bool = True  # macOS notifications; every alert is logged either way
+    alerts: bool = True  # macOS notifications and/or the PMX_ALERT_WEBHOOK in .env; every alert is logged either way
     alert_every_s: float = 300.0  # the same alert at most this often
     source_down_s: float = 60.0  # a source down this long alerts
     throttled_s: float = 30.0  # the order scheduler holding writes this long alerts
     disk_min_gb: float = 5.0
     health_s: float = 10.0  # data/health.json this often
     guard_s: float = 10.0  # `pmx guard` cancels live orders after this long without a heartbeat
+    min_paper_days: float = 10.0  # `pmx run --live` needs this much paper trading with a strategy's current params
+    live_order_ttl_s: float = 600.0  # live resting orders expire at the venue after this and pmx renews them: if the
+    #                                  machine dies (and the guard with it), nothing rests longer (0: never expire)
     stay_awake: bool = True  # hold a no-sleep assertion (caffeinate) while running
-    backup_dir: str = ""  # `pmx ops backup` copies raw logs and the ledger here
+    backup_dir: str = ""  # `pmx ops backup` copies raw logs, the ledger, and research/ here
     backup_keep_days: int = 14
+    backup_sync: list[str] = []  # then runs this, `{dir}` = backup_dir: e.g. ["aws", "s3", "sync", "{dir}", "s3://b/pmx"]
 
 
 class _File(msgspec.Struct, frozen=True, forbid_unknown_fields=True):

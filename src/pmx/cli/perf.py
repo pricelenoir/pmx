@@ -11,13 +11,19 @@ from datetime import date, datetime
 from pathlib import Path
 
 from pmx import config
+from pmx.cli import style
 from pmx.cli.common import die
 
 
 def _usd(m: int | None, sign: bool = True) -> str:
-    if m is None:
-        return "-"
-    return f"{'+' if sign and m > 0 else '-' if m < 0 else ''}${abs(m) / 1e6:,.2f}"
+    return style.usd(m, sign=sign)
+
+
+_VERDICT = {"profitable": style.green, "unprofitable": style.red, "inconclusive": style.yellow}
+
+
+def _label(name: str) -> str:
+    return style.bold(f"{name:<9}")
 
 
 def _pct(x: float | None) -> str:
@@ -46,32 +52,34 @@ def text(name: str, mode: str, stats, rows, v, rho) -> str:  # noqa: ANN001 - pr
     s = stats
     ci = f"[{_usd(s.pnl_ci[0])}, {_usd(s.pnl_ci[1])}]" if s.pnl_ci else "-"
     marks = " · ".join(f"{h} {x:+.2f}¢" for h, x in s.markouts_c.items()) or "-"
-    lines = [f"pmx perf — {name}, {mode}", "",
-             f"verdict   {v.verdict.upper()}: {v.reason}" + (f"  — {v.needed}" if v.needed else "")]
-    lines += [f"          ! {f}" for f in v.flags]
+    color = _VERDICT.get(v.verdict, style.bold)
+    lines = [style.heading(f"pmx perf · {name}", mode), "",
+             f"{_label('verdict')} {color(style.bold(v.verdict.upper()))}  {v.reason}"
+             + (style.dim(f"  · {v.needed}") if v.needed else "")]
+    lines += [f"          {style.yellow('! ' + f)}" for f in v.flags]
     lines += [
         "",
-        f"pnl       net {_usd(s.net)} = realized {_usd(s.realized)} + open {_usd(s.open)} − fees "
+        f"{_label('pnl')} net {_usd(s.net)} = realized {_usd(s.realized)} + open {_usd(s.open)} − fees "
         f"{_usd(s.fees, False)}   (95% CI of the total {ci})",
-        f"activity  {s.orders} orders · {s.fills} fills · {s.contracts / 100:,.0f} contracts · maker "
+        f"{_label('activity')} {s.orders} orders · {s.fills} fills · {s.contracts / 100:,.0f} contracts · maker "
         f"{_pct(s.maker_share)} · fill rate {_pct(s.fill_rate)} · {s.episodes} episodes in {s.markets} markets, "
         f"{s.entities} entities",
-        f"outcomes  win rate {_pct(s.win_rate)} · avg win {_usd(s.avg_win)} · avg loss {_usd(s.avg_loss)} · "
+        f"{_label('outcomes')} win rate {_pct(s.win_rate)} · avg win {_usd(s.avg_win)} · avg loss {_usd(s.avg_loss)} · "
         f"profit factor {_num(s.profit_factor, '{:.2f}')}",
         f"          expectancy {_num(s.expectancy_c)}¢/contract (P(≤0) {_num(s.p_nonpositive, '{:.0%}')}) · "
         f"best {_usd(s.best_episode)} · worst {_usd(s.worst_episode)}",
-        f"edge      at entry {_num(s.edge_entry_c)}¢ · realized {_num(s.edge_realized_c)}¢ · capture "
+        f"{_label('edge')} at entry {_num(s.edge_entry_c)}¢ · realized {_num(s.edge_realized_c)}¢ · capture "
         f"{_num(s.capture, '{:.2f}')} · markouts {marks} · edge↔result ρ {_num(rho, '{:+.2f}')}",
-        f"risk      max drawdown {_usd(s.max_drawdown, False)} · longest under water "
+        f"{_label('risk')} max drawdown {_usd(s.max_drawdown, False)} · longest under water "
         f"{s.time_under_water_ms / 3_600_000:.1f} h · max capital at risk {_usd(s.max_capital_at_risk, False)} · "
         f"return on risk {_pct(s.return_on_risk)}",
-        f"days      {s.days} · Sharpe/day {_num(s.sharpe_day, '{:.2f}')} · positive {_pct(s.pct_days_positive)}",
-        f"model     Brier at entry {_num(s.brier_model, '{:.4f}')} vs market {_num(s.brier_market, '{:.4f}')}"]
+        f"{_label('days')} {s.days} · Sharpe/day {_num(s.sharpe_day, '{:.2f}')} · positive {_pct(s.pct_days_positive)}",
+        f"{_label('model')} Brier at entry {_num(s.brier_model, '{:.4f}')} vs market {_num(s.brier_market, '{:.4f}')}"]
     for key, label in (("series", "by series"), ("entity", "by entity (top 10)"), ("edge", "by predicted edge"),
                        ("phase", "by phase"), ("day", "by day")):
         if not rows.get(key):
             continue
-        lines += ["", f"{label}:"]
+        lines += ["", style.bold(label)]
         for r in rows[key][:10]:
             edge = f"  edge {r.edge_c:+.2f}¢" if r.edge_c is not None else ""
             lines.append(f"  {r.key[:40]:<40} {r.fills:>5} ep {r.contracts / 100:>8,.0f} ct {_usd(r.pnl):>10} "

@@ -80,3 +80,14 @@ def uninstall(names: list[str], *, agents_dir: Path = AGENTS_DIR, unload: bool =
 
 def installed(agents_dir: Path = AGENTS_DIR) -> list[str]:
     return sorted(p.name.removeprefix(PREFIX).removesuffix(".plist") for p in agents_dir.glob(PREFIX + "*.plist"))
+
+
+def states(names: list[str]) -> dict[str, str]:
+    """name -> launchd's state for the agent (`running`, `not running`, `not loaded`)."""
+    out = {}
+    for name in names:
+        r = subprocess.run(["launchctl", "print", f"gui/{os.getuid()}/{PREFIX}{name}"], capture_output=True, text=True)
+        state = next((ln.split("=", 1)[1].strip() for ln in r.stdout.splitlines() if ln.strip().startswith("state =")),
+                     None)
+        out[name] = state or ("not loaded" if r.returncode else "unknown")
+    return out

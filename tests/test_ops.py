@@ -138,6 +138,20 @@ def test_alerts_fire_on_what_matters_once_per_window(tmp_path):
     assert len(a.sent) == len(keys), "back up, not throttled: nothing new"
 
 
+def test_live_broker_warnings_alert_once_and_other_warnings_dont():
+    a = Alerts(OpsSection(alert_every_s=60), send=lambda *_: None)
+    a.observe(LogEvent("warn", "live", "T: the venue holds 5.00, pmx's live slots 3.00 (orders placed outside pmx?)",
+                       1_000), 1_000)
+    a.observe(LogEvent("warn", "live", "T: the venue holds 5.00, pmx's live slots 3.00 (orders placed outside pmx?)",
+                       2_000), 2_000)  # the same, inside the window
+    a.observe(LogEvent("error", "live", "reconciliation failed: kalshi 503; trying again in 5 s", 3_000), 3_000)
+    a.observe(LogEvent("error", "live", "fill F9 on T is for an order pmx didn't place: not booked", 4_000), 4_000)
+    a.observe(LogEvent("warn", "smoke/T", "an ordinary strategy warning", 3_000), 3_000)
+    a.observe(LogEvent("info", "live", "reconciled (hourly): 2 resting at the venue", 3_000), 3_000)
+    assert [t for _, t in a.sent] == ["live: T: the venue holds 5.00, pmx's live slots 3.00 (orders placed outside "
+                                      "pmx?)", "live: reconciliation failed: kalshi 503; trying again in 5 s"]
+
+
 def test_alerts_off_still_log(tmp_path):
     logged = []
     a = Alerts(OpsSection(alerts=False), send=lambda *_: pytest.fail("no notifications"),
@@ -229,7 +243,7 @@ def test_ops_install_refuses_clearly_without_launchd(monkeypatch):
     from pmx.cli import ops as ops_cli
 
     monkeypatch.setattr(ops_cli.shutil, "which", lambda name: None)
-    with pytest.raises(SystemExit, match="launchd agents"):
+    with pytest.raises(SystemExit, match="launchd agents .macOS. or systemd user services"):
         cli.main(["ops", "install", "--record"])
 
 

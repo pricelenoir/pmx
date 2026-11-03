@@ -19,7 +19,8 @@ from pmx.cli.common import common_parser
     ["ops", "install", "--record", "--backup"], ["ops", "uninstall"], ["ops", "backup", "--to", "/tmp/x"],
     ["data", "kalshi-history", "--seasons", "2025"],
     ["data", "kalshi", "--series", "KXHIGHNY", "--trades"],
-    ["research", "status"], ["research", "run", "weather-longshot", "--stage", "discovery"],
+    ["research", "status"], ["remote", "vm", "status", "--mode", "paper"], ["ops", "status"],
+    ["ops", "alert-test"], ["research", "run", "weather-longshot", "--stage", "discovery"],
     ["research", "close", "x", "--as", "dead", "--note", "n"], ["backtest", "report", "r1"],
     ["backtest", "compare", "a", "b"],
     ["backtest", "view", "r1"], ["backtest", "--nfl-history", "--seasons", "2026"],
@@ -39,7 +40,7 @@ def test_commands_are_exactly_the_registered_subparsers_in_help_order():
              "serve", "up", "down", "tui", "data", "research", "run", "config", "halt", "resume", "backtest", "risk",
              "perf",
              "export",
-             "guard", "doctor", "ops", "order", "cancel", "status", "positions", "advise", "bench", "help"]
+             "guard", "doctor", "ops", "remote", "order", "cancel", "status", "positions", "advise", "bench", "help"]
     assert list(sub.choices) == names
     assert list(COMMANDS) == names
 
@@ -76,6 +77,7 @@ def test_each_area_registers_only_its_own_commands():
     assert owned["perf"] == owned["export"] == "pmx.cli.perf"
     assert owned["data"] == "pmx.cli.data"
     assert owned["research"] == "pmx.cli.research"
+    assert owned["remote"] == "pmx.cli.remote"
 
 
 def test_main_runs_async_commands_in_a_loop_and_sync_ones_directly(monkeypatch):

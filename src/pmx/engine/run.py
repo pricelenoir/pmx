@@ -51,6 +51,7 @@ from pmx.ops.awake import on_battery, stay_awake
 from pmx.ops.guard import Heartbeat, guard_pidfile, heartbeat_path
 from pmx.ops.health import engine_health, health_path
 from pmx.ops.health import write as write_health
+from pmx.ops.notify import UptimePing
 from pmx.portfolio.scenarios import OutcomeMap
 from pmx.portfolio.tracker import PortfolioTracker
 from pmx.recorder.sink import RecordingSink
@@ -189,7 +190,8 @@ class Core:
         self.orders = OrderManager(intents=self.router.take_intents, slots=self.router.slots,
                                    brokers={"paper": self.paper} | ({"live": live} if live is not None else {}),
                                    ledger=ledger, instance=instance, paper_cash=cfg.paper_cash,
-                                   attribution=self.attribution)
+                                   attribution=self.attribution,
+                                   live_order_ttl_ms=round(cfg.ops.live_order_ttl_s * 1000))
         if live is not None:
             live.positions = lambda mid: self.orders.position("", mid, "live")
         self.risk = RiskManager(positions=self.orders, balance=self.orders, slots=self.router.slots,
@@ -484,9 +486,11 @@ class System:
 
     async def _ops(self, stop: asyncio.Event) -> None:
         """The health file and the periodic alerts, every `[ops] health_s`."""
+        uptime = UptimePing()
         while not await sleep_or_stop(stop, self.cfg.ops.health_s):
             try:
                 write_health(self.health_path, engine_health(self))
+                uptime.beat()
                 self.alerts.check(self.clock.now_ms(), data=self.data, queued_writes=len(self.orders.scheduler),
                                   dropped=self.link.total_dropped())
             except Exception:

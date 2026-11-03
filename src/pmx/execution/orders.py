@@ -14,6 +14,10 @@ back as engine events; the order manager records them in the ledger (orders, fil
 attribution) and keeps each slot's positions and working orders, which it serves to the router
 (`OrderView`), to risk (`Positions`), and as the paper balance (`Balance`).
 
+Live resting orders (quotes and manual orders) carry an expiry `live_order_ttl_ms` ahead: the venue cancels them
+then by itself, so nothing rests long if pmx and its guard die with the machine. While pmx runs, an expired order
+is placed again at once, same price and remaining size (a new order: it joins the back of the queue).
+
 Market pauses and closes cancel resting orders; a settled market settles every position in it at the
 recorded price. Paper orders don't survive a restart: `start` cancels them in the ledger and
 rebuilds positions from its fills. Live orders do: the live broker adopts an earlier run's resting ones
@@ -30,7 +34,7 @@ from typing import Any
 
 from pmx.control import protocol
 from pmx.core.position import AvgCost
-from pmx.core.types import Contract, OrderRequest
+from pmx.core.types import EXPIRED, Contract, OrderRequest
 from pmx.core.units import ONE_DOLLAR, Micros, Price, Qty, cents
 from pmx.engine.events import (
     AccountSnapshot,
@@ -53,6 +57,7 @@ from pmx.strategies.base import CancelAll, Intent, Quote, Take, WorkingOrder
 log = logging.getLogger(__name__)
 
 MANUAL = "manual"  # the strategy id of orders placed by hand (`pmx order`)
+RENEWED = frozenset({"quote", MANUAL})  # order kinds that rest, and are placed again when the venue expires them
 FINAL = frozenset({"filled", "canceled", "rejected"})
 
 
@@ -88,10 +93,14 @@ class OrderManager:
         instance: str | None = None,
         paper_cash: Micros = 1_000_000_000,
         attribution: Mapping[str, Attribution] | None = None,
+        live_order_ttl_ms: int = 0,
     ) -> None:
         """`intents` is the router's `take_intents`; `slots` its slot table (for each slot's mode);
         `brokers` maps a mode to its broker; `instance` tags our client order ids (one per data dir);
-        `paper_cash` is the paper account's starting balance; `attribution` is per strategy id."""
+        `paper_cash` is the paper account's starting balance; `attribution` is per strategy id;
+        `live_order_ttl_ms` is how long a live resting order lives at the venue before it's renewed (0: forever)."""
+        self.live_order_ttl_ms = live_order_ttl_ms
+        self._renew: list[Order] = []  # live orders the venue expired, to place again
         self._intents, self.slots = intents, slots if slots is not None else {}
         self.risk, self.ledger = risk, ledger
         self.brokers = dict(brokers or {})
@@ -151,6 +160,10 @@ class OrderManager:
         t = type(ev)
         if t is OrderUpdate:
             self._update(ev)
+            while self._renew:
+                o = self._renew.pop(0)
+                self._place(o.slot, o.mid, o.req.side, o.req.price, o.remaining, "gtc", o.req.post_only, o.kind, state,
+                            now_ms, out, mode=o.mode)
         elif t is SlotFill:
             self._fill(ev)
         elif t is Contract:
@@ -252,8 +265,10 @@ class OrderManager:
         venue, ticker = venue_ticker(mid)
         self._seq += 1
         tag = hashlib.blake2b(slot.encode(), digest_size=3).hexdigest()
+        life = self.live_order_ttl_ms if mode == "live" and tif == "gtc" else 0
+        expires = now_ms + life if life else None
         req = OrderRequest(venue, ticker, side, price, qty, tif, post_only, f"pmx-{self.instance}-{tag}-{self._seq:x}",
-                           slot)
+                           slot, expires)
 
         def reject(rule: str, detail: str) -> None:
             out.append(RiskReject(slot, mid, side, price, qty, rule, detail, now_ms))
@@ -318,6 +333,9 @@ class OrderManager:
         if o is None or ev.status == "queued":
             return
         o.unknown = ev.status == "pending"
+        if (ev.status == "canceled" and ev.reason == EXPIRED and o.mode == "live" and not o.canceling
+                and o.kind in RENEWED and ev.filled < o.req.qty):
+            self._renew.append(o)  # placed again below, from what's left
         o.status, o.filled = ev.status, ev.filled
         self._stale_reserve.add(o.mid)
         o.order_id = ev.order_id or o.order_id

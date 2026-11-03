@@ -1,7 +1,8 @@
 """Alerts: what you should hear about while pmx runs unattended, as macOS notifications.
 
 `observe` sees every event the run publishes (cheap type checks): a live fill, a halt, a slot error, a source
-queue overflow, a slot over its CPU budget, a failing advisor. `check` runs with the health file: sources
+queue overflow, a slot over its CPU budget, a failing advisor, a live-broker warning (positions that disagree with
+the venue, fills only reconciliation found, a cancel that keeps failing). `check` runs with the health file: sources
 down longer than `source_down_s`, the order scheduler holding writes longer than `throttled_s`, low disk,
 observability drops. The same alert (by key) goes out at most every `alert_every_s`; all are logged."""
 
@@ -64,7 +65,9 @@ class Alerts:
             if ev.detail.startswith("queue overflow"):
                 self.alert(f"overflow:{ev.source}", f"source {ev.source}: {ev.detail}", now_ms)
         elif t is LogEvent:
-            if "over its CPU budget" in ev.text:
+            if ev.source == "live" and ev.level in ("warn", "error"):  # the venue and pmx disagree, or a call failed
+                self.alert(f"live:{ev.level}", f"live: {ev.text}", now_ms)  # one per level per window; all logged
+            elif "over its CPU budget" in ev.text:
                 self.alert(f"cpu:{ev.source}", f"{ev.source} {ev.text}", now_ms)
             elif ev.source == "advisors" and ev.level == "error":
                 self.alert("advisors", f"advisors: {ev.text}", now_ms)

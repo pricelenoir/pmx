@@ -12,7 +12,33 @@ from datetime import date
 from pathlib import Path
 
 from pmx import config, lifecycle
-from pmx.cli.common import die, engine_flags, engine_pidfile, on_signal, socket_for
+from pmx.cli import style
+from pmx.cli.common import bindable, die, engine_flags, engine_pidfile, on_signal, socket_for
+
+
+def _promotion_gate(cfg, env: str, skip: str | None) -> None:
+    """Live strategies must have paper-traded with their current params (`analytics/gate.py`)."""
+    from pmx.analytics import gate
+    from pmx.analytics.stats import ReadOnly
+
+    path = config.data_root() / "ledger.sqlite"
+    ledger = ReadOnly(path, env) if path.exists() else None
+    try:
+        results = gate.check(ledger, {s: cfg.params_hash[s] for s in cfg.live}, min_days=cfg.ops.min_paper_days)
+    finally:
+        if ledger is not None:
+            ledger.close()
+    print(style.heading("promotion gate", f"paper trading with the current params: ≥ {cfg.ops.min_paper_days:g} days, "
+                                          "verdict not unprofitable"))
+    rows = [[f"{style.mark(r.ok)} {r.strategy}", f"{r.days:.1f} days", f"{r.fills:,} fills",
+             r.why if r.ok else style.red(r.why)] for r in results]
+    print("\n".join(style.table(rows, right={1, 2}, header=False)))
+    failed = [r.strategy for r in results if not r.ok]
+    if failed and not skip:
+        die(f"live trading refused for {', '.join(failed)}; paper-trade it (mode = \"paper\") until it passes, or go "
+            f"live anyway with --skip-paper-check \"why\" (the reason is logged)")
+    if failed:
+        logging.getLogger("pmx.run").warning("promotion gate skipped for %s: %s", ", ".join(failed), skip)
 
 
 async def run_engine(args: argparse.Namespace, *, strategies: bool = True) -> None:
@@ -34,11 +60,13 @@ async def run_engine(args: argparse.Namespace, *, strategies: bool = True) -> No
         die(str(e))
     if not strategies:
         cfg = cfg.without_strategies()
-    sock = socket_for(args)
+    sock = bindable(socket_for(args))
     pid = lifecycle.read_pid(lifecycle.pidfile_for(sock))
     if pid is not None or await socket_alive(sock):
         die(f"pmx is already running on {sock}" + (f" (pid {pid})" if pid else "") + "; stop it with `pmx down`")
     kcfg = KalshiConfig.from_env(args.env or cfg.engine.env)
+    if getattr(args, "live", False) and cfg.live:
+        _promotion_gate(cfg, kcfg.env, getattr(args, "skip_paper_check", None))
     if getattr(args, "live", False) and kcfg.env == "prod" and not confirmed(cfg, args.confirm):
         die("live trading on prod needs confirmation; type `prod` when asked, or pass --confirm prod")
     mode = args.source or ("live" if kcfg.key_id else "poll")
@@ -52,7 +80,8 @@ async def run_engine(args: argparse.Namespace, *, strategies: bool = True) -> No
     on_signal(stop.set)
     try:
         system = System(cfg, env=kcfg.env, sock=sock, venue=v, live=getattr(args, "live", False),
-                        record=None if strategies else False, source_mode=mode, trades_s=args.poll or 2.0)
+                        record=False if getattr(args, "no_record", False) or not strategies else None,
+                        source_mode=mode, trades_s=args.poll or 2.0)
     except StartRefused as e:
         await v.aclose()
         die(f"cannot start: {e}")
@@ -159,13 +188,14 @@ def cmd_halt(args: argparse.Namespace) -> None:
     write_halt(_halt_file(), scope, reason)  # durable, and the fallback when the engine doesn't answer
     now = _tell_engine(args, protocol.Halt(scope, f"kill switch: {reason}"))  # the reason the file would give
     running = now or lifecycle.read_pid(lifecycle.pidfile_for(socket_for(args))) is not None
-    print(f"halted {what}: {reason}")
+    print(f"{style.yellow('⏸ halted')} {style.bold(what)}  {style.dim(reason)}")
+    undo = style.dim(f"undo: pmx resume {scope}".rstrip())
     if now:
-        print(f"  the engine stopped trading and is canceling working orders; undo: pmx resume {scope}".rstrip())
+        print(f"  the engine stopped trading and is canceling working orders · {undo}")
     elif running:
-        print(f"  the engine stops trading within 2 s and cancels working orders; undo: pmx resume {scope}".rstrip())
+        print(f"  the engine stops trading within 2 s and cancels working orders · {undo}")
     else:
-        print("  pmx isn't running: the halt applies as soon as it starts (pmx resume to clear it)")
+        print(f"  pmx isn't running: the halt applies as soon as it starts · {style.dim('clear it: pmx resume')}")
 
 
 def cmd_resume(args: argparse.Namespace) -> None:
@@ -175,18 +205,18 @@ def cmd_resume(args: argparse.Namespace) -> None:
     if args.scope is None and not args.id:
         halts = read_halts(_halt_file())
         if not clear_halt(_halt_file()):
-            print("nothing was halted by pmx halt")
+            print(style.dim("nothing was halted by pmx halt"))
             return
         for scope in halts:
             _tell_engine(args, protocol.Resume(scope))
-        print(f"resumed: {', '.join(k or 'everything' for k in halts)}")
+        print(f"{style.green('▶ resumed')} {style.bold(', '.join(k or 'everything' for k in halts))}")
         return
     scope, what = _halt_scope(args)
     _tell_engine(args, protocol.Resume(scope))
     if not clear_halt(_halt_file(), scope):
         die(f"{what} was not halted by pmx halt (halted: "
             f"{', '.join(k or 'everything' for k in read_halts(_halt_file())) or 'nothing'})")
-    print(f"resumed {what}")
+    print(f"{style.green('▶ resumed')} {style.bold(what)}")
 
 
 def register(sub: argparse._SubParsersAction, common: argparse.ArgumentParser) -> dict[str, Callable]:
@@ -195,6 +225,10 @@ def register(sub: argparse._SubParsersAction, common: argparse.ArgumentParser) -
     r.add_argument("--socket", help="default $PMX_SOCK or data/pmx.sock")
     r.add_argument("--live", action="store_true", help="allow strategies with mode = \"live\"")
     r.add_argument("--confirm", metavar="ENV", help="live on prod without the typed confirmation (pmx up)")
+    r.add_argument("--skip-paper-check", metavar="REASON",
+                   help="go live without passing the promotion gate (paper record); the reason is logged")
+    r.add_argument("--no-record", action="store_true",
+                   help="don't raw-record (overrides [engine] record): when `pmx record` already records everything")
     c = sub.add_parser("config", parents=[common], help="pmx config check: validate the config, print the plan")
     c.add_argument("action", choices=["check"])
     c.add_argument("--config", help="default config/strategies.toml")
