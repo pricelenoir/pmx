@@ -109,5 +109,5 @@ uv run ruff check src tests
 (cd tui && cargo test && cargo clippy --all-targets && cargo fmt --check)
 ```
 
-CI runs all of it on every push, plus a clean install of the package and the server setup script on a fresh Ubuntu;
-a weekly run adds checks against Kalshi's live API (`pytest -m network`) and dependency audits.
+CI runs all of it on every push, plus a clean install of the package, the server setup script on a fresh Ubuntu,
+checks against Kalshi's live API (`pytest -m network`), and dependency audits.

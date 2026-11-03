@@ -1,20 +1,20 @@
-# Offline checks on every push: the Python suite + ruff; the TUI's fmt / clippy / tests; the built package installed
-# clean, away from the repo; and the server setup script on a fresh Ubuntu, up to installing a real systemd service.
+# Every push: the Python suite + ruff; the TUI's fmt / clippy / tests; the built package installed clean, away from
+# the repo; the server setup script on a fresh Ubuntu, up to installing a real systemd service; Kalshi's live public
+# API through pmx's decoders (read-only, no key: a failure means Kalshi changed something pmx parses); and known
+# vulnerabilities in the Python and Rust dependencies.
 # Performance budgets (`pytest -m slow`, `cargo test --release scale`) stay local: shared runners are too noisy.
-# weekly.yml runs this too, plus Kalshi's live API against pmx's decoders and dependency audits.
 # Runners are pinned (not ubuntu-latest) so an image change is a deliberate edit here.
 name: CI
 
 on:
   push:
   workflow_dispatch:
-  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}-${{ github.event_name }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -96,3 +96,38 @@ jobs:
           systemctl --user is-enabled pmx-backup.timer
           pmx ops uninstall
           test -z "$(ls ~/.config/systemd/user/pmx-* 2> /dev/null)"
+
+  kalshi-api:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: uv sync --locked --python 3.13
+      - name: Kalshi's public API still decodes
+        run: uv run --locked pytest -m network -q
+
+  audit-python:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      - name: Known vulnerabilities in the locked dependencies
+        run: |
+          uv export --locked --no-hashes --no-emit-project --format requirements.txt -o "$RUNNER_TEMP/requirements.txt"
+          uvx pip-audit -r "$RUNNER_TEMP/requirements.txt" --no-deps --disable-pip
+
+  audit-rust:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - name: Known vulnerabilities in the TUI's dependencies
+        working-directory: tui
+        run: cargo audit

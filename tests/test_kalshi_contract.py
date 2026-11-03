@@ -1,5 +1,5 @@
 """Kalshi's live API still matches what pmx decodes: read-only calls to public prod endpoints through pmx's own clients
-(no key, no orders). Marked `network`, so the offline suite skips them; CI runs them weekly (`pytest -m network`).
+(no key, no orders). Marked `network`, so `uv run pytest` skips them; CI runs them on every push (`-m network`).
 A failure here means Kalshi changed something pmx parses — fix the wire structs before it reaches a live engine."""
 
 from __future__ import annotations

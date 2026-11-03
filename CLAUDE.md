@@ -51,9 +51,9 @@ pmx tui --build ...                     # force a rebuild (automatic when tui/ s
 ```
 
 Tests: `uv run pytest` (~25 s); performance budgets: `uv run pytest -m slow` (~35 s); Kalshi's live public API
-against pmx's decoders: `uv run pytest -m network` (read-only). CI (`.github/workflows/`): every push runs the suite,
-ruff, the TUI checks, a clean install of the wheel, and `scripts/setup-linux.sh` on a fresh Ubuntu; weekly adds the
-network tests and dependency audits (pip-audit, cargo audit).
+against pmx's decoders: `uv run pytest -m network` (read-only). CI (`.github/workflows/ci.yml`, every push): the suite,
+ruff, the TUI checks, a clean install of the wheel, `scripts/setup-linux.sh` on a fresh Ubuntu, the network tests, and
+dependency audits (pip-audit, cargo audit).
 Lint: `uv run ruff check src tests`. Strategy tests use `pmx.testing.Scenario` (GUIDE).
 Rust (`tui/`): `cargo test`, `cargo clippy --all-targets`, `cargo fmt` — keep all clean.
 TUI budgets (frame, sort, apply at 5k/10k markets; fail past 2×): `cargo test --release scale -- --ignored --nocapture`.
