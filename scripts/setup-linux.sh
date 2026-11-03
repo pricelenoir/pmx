@@ -44,6 +44,7 @@ cd "$repo"
 uv sync --locked --python 3.13
 mkdir -p "$HOME/.local/bin"
 ln -sf "$repo/.venv/bin/pmx" "$HOME/.local/bin/pmx"
+# shellcheck disable=SC2016  # written literally: the login shell expands it
 grep -qs 'HOME/.local/bin' "$HOME/.profile" || echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.profile"
 
 if [[ "$with_tui" -eq 1 ]]; then
