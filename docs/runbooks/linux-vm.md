@@ -127,6 +127,9 @@ To research on recordings made on the VM, copy them down: `rsync -a vm:pmx/data/
 
 ## 7. Updating
 
+Deploy only commits CI passed: check the commit's ✓ on GitHub, or from your laptop
+`gh run list --branch main --limit 1` (`completed success`). Then:
+
 ```sh
 ssh vm
 cd ~/pmx && git pull --ff-only && uv sync --locked

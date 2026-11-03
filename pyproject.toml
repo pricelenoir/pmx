@@ -36,8 +36,11 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]  # tests import `tests.conftest`; plain `pytest` / `uv run pytest` need the repo root
-markers = ["slow: performance budgets under load; run with `-m slow`"]
-addopts = "-m 'not slow'"
+markers = [
+    "slow: performance budgets under load; run with `-m slow`",
+    "network: calls Kalshi's public API (read-only); run with `-m network`",
+]
+addopts = "-m 'not slow and not network'"
 
 [tool.ruff]
 line-length = 120

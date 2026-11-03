@@ -1,17 +1,20 @@
-# Offline checks on every push: the Python suite + ruff, and the TUI's fmt / clippy / tests.
+# Offline checks on every push: the Python suite + ruff; the TUI's fmt / clippy / tests; the built package installed
+# clean, away from the repo; and the server setup script on a fresh Ubuntu, up to installing a real systemd service.
 # Performance budgets (`pytest -m slow`, `cargo test --release scale`) stay local: shared runners are too noisy.
+# weekly.yml runs this too, plus Kalshi's live API against pmx's decoders and dependency audits.
 # Runners are pinned (not ubuntu-latest) so an image change is a deliberate edit here.
 name: CI
 
 on:
   push:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
@@ -47,3 +50,49 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: cargo test --locked
+
+  package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      - name: Build the wheel
+        run: uv build --wheel --out-dir dist
+      - name: Install it in a clean venv and use it from outside the repo
+        run: |
+          uv venv --python 3.13 "$RUNNER_TEMP/clean"
+          uv pip install --python "$RUNNER_TEMP/clean" dist/*.whl
+          cd "$RUNNER_TEMP"
+          pmx="$RUNNER_TEMP/clean/bin/pmx"
+          "$pmx" help > /dev/null
+          "$pmx" help live | head -1
+          export PMX_RESEARCH="$RUNNER_TEMP/research"
+          "$pmx" research init
+          "$pmx" research new install-check
+          test -s "$PMX_RESEARCH"/experiments/*-install-check/spec.md
+
+  setup-script:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Shellcheck
+        run: shellcheck scripts/*.sh
+      - name: Run it, as on a new server
+        run: scripts/setup-linux.sh
+      - name: pmx works and services start at boot
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          pmx help > /dev/null
+          pmx doctor || true
+          test "$(loginctl show-user "$USER" -p Linger --value)" = yes
+      - name: A systemd user service installs, runs, and uninstalls
+        run: |
+          export PATH="$HOME/.local/bin:$PATH" XDG_RUNTIME_DIR="/run/user/$(id -u)"
+          for _ in $(seq 30); do systemctl --user show-environment > /dev/null 2>&1 && break; sleep 1; done
+          pmx ops install --backup --env demo
+          pmx ops status
+          systemctl --user is-enabled pmx-backup.timer
+          pmx ops uninstall
+          test -z "$(ls ~/.config/systemd/user/pmx-* 2> /dev/null)"
